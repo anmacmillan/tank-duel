@@ -25,9 +25,9 @@ function randomCode(len = 4) {
 const WORLD_W = 1600;
 const WORLD_H = 900;
 const GROUND_Y = 800;
-const GRAVITY_Y = 1.4;
-const LAUNCH_SCALE = 24;           // bird speed = LAUNCH_SCALE * power (Matter units/step)
-const MAX_PULL = 180;              // px from slingshot anchor
+const GRAVITY_Y = 0.65;            // gentle pull = long arcs across the world
+const LAUNCH_SCALE = 40;           // bird speed = LAUNCH_SCALE * power (Matter units/step)
+const MAX_PULL = 260;              // px from slingshot anchor
 
 const SLING_A = { x: 320, y: GROUND_Y - 110 };
 const SLING_B = { x: WORLD_W - 320, y: GROUND_Y - 110 };
@@ -54,6 +54,8 @@ class Game {
     this.cpu = null;
 
     this.engine = M.Engine.create();
+    // Override Matter's default gravity scale so engine.gravity.y matches my preview's per-step velocity delta.
+    this.engine.gravity.scale = 0.0036;
     this.engine.gravity.y = GRAVITY_Y;
     this.world = this.engine.world;
     this.pigs = [];
@@ -87,7 +89,7 @@ class Game {
             centerX + off,
             baseY - blockH / 2 - r * (blockH + 1),
             blockW, blockH,
-            { density: 0.006, friction: 0.7, frictionStatic: 1, restitution: 0.05, label: 'block' }
+            { density: 0.0018, friction: 0.25, frictionStatic: 0.35, restitution: 0.15, label: 'block' }
           );
           b._w = blockW; b._h = blockH;
           this.blocks.push(b);
@@ -97,7 +99,7 @@ class Game {
       // Top horizontal beam
       const beamW = gap + blockW * 1.3, beamH = 22;
       const beam = M.Bodies.rectangle(centerX, baseY - blockH * 2 - beamH / 2 - 2, beamW, beamH,
-        { density: 0.005, friction: 0.7, frictionStatic: 1, restitution: 0.05, label: 'block' });
+        { density: 0.0016, friction: 0.25, frictionStatic: 0.35, restitution: 0.15, label: 'block' });
       beam._w = beamW; beam._h = beamH;
       this.blocks.push(beam);
       M.World.add(this.world, beam);
@@ -105,11 +107,11 @@ class Game {
       // Pigs: one on top of beam, one on ground inside, one offset on the ground outside
       const mkPig = (x, y) => {
         const p = M.Bodies.circle(x, y, 22, {
-          density: 0.0018, friction: 0.6, restitution: 0.15, label: 'pig'
+          density: 0.0014, friction: 0.4, restitution: 0.25, label: 'pig'
         });
         p.ownerSide = ownerSide;
         p.pigId = pigId++;
-        p.hp = 24;
+        p.hp = 10;
         p.dead = false;
         this.pigs.push(p);
         M.World.add(this.world, p);
@@ -137,13 +139,13 @@ class Game {
     const otherSpeed = Math.hypot(other.velocity.x, other.velocity.y);
     let dmg = 0;
     if (other.label === 'bird') {
-      dmg = otherSpeed * 1.4 + pigSpeed * 0.6;
+      dmg = otherSpeed * 2.5 + pigSpeed * 1.0 + 6;   // any bird touch is a real hit
     } else if (other.label === 'block') {
-      if (otherSpeed > 2) dmg = otherSpeed * 1.0;
+      if (otherSpeed > 1.5) dmg = otherSpeed * 1.4;
     } else if (other.label === 'ground' || other.label === 'wall') {
-      if (pigSpeed > 6) dmg = pigSpeed * 0.7;
+      if (pigSpeed > 5) dmg = pigSpeed * 0.9;
     }
-    if (dmg > 4) {
+    if (dmg > 1) {
       pig.hp -= dmg;
       if (pig.hp <= 0) this.killPig(pig);
     }
@@ -179,7 +181,7 @@ class Game {
     if (d > MAX_PULL) { dx *= MAX_PULL / d; dy *= MAX_PULL / d; }
     this.drag.x = s.x + dx;
     this.drag.y = s.y + dy;
-    if (d > 20) this.drag.pulled = true;
+    if (d > 10) this.drag.pulled = true;
   }
   onPointerUp() {
     if (!this.drag) { return; }
@@ -205,8 +207,12 @@ class Game {
   launchBird(side, power, angle) {
     const s = this.slingshotPos(side);
     const speed = LAUNCH_SCALE * power;
-    const bird = M.Bodies.circle(s.x, s.y - 14, 20, {
-      density: 0.005, friction: 0.5, restitution: 0.32, label: 'bird'
+    const bird = M.Bodies.circle(s.x, s.y - 14, 22, {
+      density: 0.012,          // heavy wrecking ball — barrels through blocks
+      friction: 0.5,
+      frictionAir: 0.0008,     // barely any drag, flies far
+      restitution: 0.18,
+      label: 'bird'
     });
     bird.ownerSide = side;
     M.Body.setVelocity(bird, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed });
@@ -395,23 +401,27 @@ class Game {
     const pullX = s.x - this.drag.x;
     const pullY = s.y - this.drag.y;
     const pull = Math.hypot(pullX, pullY);
-    if (pull < 25) return;
+    if (pull < 12) return;
     const power = Math.min(1, pull / MAX_PULL);
     const speed = LAUNCH_SCALE * power;
     let vx = (pullX / pull) * speed;
     let vy = (pullY / pull) * speed;
     let x = s.x;
     let y = s.y - 14;
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 120; i++) {
       vy += GRAVITY_Y;
       x += vx;
       y += vy;
-      if (y > GROUND_Y || x < 0 || x > WORLD_W) break;
-      if (i % 3 === 0) {
+      if (y > GROUND_Y || x < -50 || x > WORLD_W + 50) break;
+      if (i % 4 === 0) {
+        const alpha = 0.85 - i / 160;
+        ctx.fillStyle = `rgba(255, 245, 100, ${alpha})`;
         ctx.beginPath();
-        ctx.arc(this.w2cx(x), this.w2cy(y), this.s(4), 0, Math.PI * 2);
+        ctx.arc(this.w2cx(x), this.w2cy(y), this.s(7), 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.lineWidth = this.s(1.5);
+        ctx.stroke();
       }
     }
   }
