@@ -169,7 +169,7 @@ class Game {
           this.turn = 1 - this.turn;
           this.rollWind();
           this.phase = 'aim';
-          this.setToast(this.myTurn() ? 'YOUR TURN' : "SISTER'S TURN", 1400);
+          this.setToast(this.myTurn() ? 'YOUR TURN' : (this.cpu?.active ? "CPU'S TURN" : "SISTER'S TURN"), 1400);
         }
       }
     }
@@ -407,6 +407,7 @@ fitCanvas();
 // ------------- Lobby buttons ----------------------------------------------
 document.getElementById('host-btn').addEventListener('click', startHost);
 document.getElementById('join-btn').addEventListener('click', () => show(joinForm));
+document.getElementById('cpu-btn').addEventListener('click', startVsCpu);
 document.getElementById('host-back').addEventListener('click', () => { teardownPeer(); show(lobby); });
 document.getElementById('join-back').addEventListener('click', () => show(lobby));
 document.getElementById('join-go').addEventListener('click', startJoin);
@@ -496,14 +497,65 @@ function startGame(side, seed) {
   powerMeter.classList.remove('hidden');
   fireBtn.classList.remove('hidden');
   game = new Game(canvas, side, seed, (payload) => conn?.send(payload));
-  game.setToast(game.myTurn() ? 'YOUR TURN' : "SISTER'S TURN", 1600);
+  game.setToast(game.myTurn() ? 'YOUR TURN' : (game.cpu?.active ? "CPU'S TURN" : "SISTER'S TURN"), 1600);
   requestAnimationFrame(loop);
+}
+
+function startVsCpu() {
+  show(null);
+  hud.classList.remove('hidden');
+  windEl.classList.remove('hidden');
+  powerMeter.classList.remove('hidden');
+  fireBtn.classList.remove('hidden');
+  document.querySelector('#hp-p2 .name').textContent = 'CPU';
+  const seed = (Math.random() * 0x7fffffff) | 0;
+  game = new Game(canvas, 0, seed, () => {});      // no network
+  game.cpu = { active: true, planned: null };       // CPU plays side 1
+  game.setToast('YOUR TURN', 1400);
+  requestAnimationFrame(loop);
+}
+
+// Simple CPU: pick a shot toward the player with some jitter, account for wind roughly.
+function cpuMaybeAct(g) {
+  if (!g.cpu?.active || g.turn !== 1 || g.phase !== 'aim') {
+    if (g.cpu) g.cpu.planned = null;
+    return;
+  }
+  if (!g.cpu.planned) {
+    const me = g.tanks[1];
+    const foe = g.tanks[0];
+    const dx = foe.x - me.x;          // negative (foe is to the left)
+    const dy = foe.y - me.y;
+    // Solve approximate ballistic angle. Pick a fixed flight time and back out velocity.
+    const t = 2.2 + Math.random() * 0.8;
+    const vx = (dx - 0.5 * g.wind * t * t) / t;
+    const vy = (dy - 0.5 * GRAVITY * t * t) / t;
+    const speed = Math.hypot(vx, vy);
+    const power = Math.max(0.25, Math.min(1, speed / SHOT_SPEED));
+    let angle = Math.atan2(vy, vx);
+    // jitter so the CPU isn't perfect — gets a bit better as it loses HP
+    const handicap = me.hp / MAX_HP;                  // 1 → 0
+    const jitter = (Math.random() - 0.5) * 0.18 * (0.5 + handicap);
+    angle += jitter;
+    g.cpu.planned = { angle, power, atMs: performance.now() + 900 + Math.random() * 600 };
+    g.aim.angle = angle;
+    g.aim.power = power;
+  }
+  if (performance.now() >= g.cpu.planned.atMs) {
+    // Briefly hand control to CPU side to fire
+    const savedSide = g.side;
+    g.side = 1;
+    g.fire();
+    g.side = savedSide;
+    g.cpu.planned = null;
+  }
 }
 
 function loop(now) {
   const dt = Math.min(0.04, (now - game.lastT) / 1000);
   game.lastT = now;
   game.step(dt);
+  cpuMaybeAct(game);
   game.draw();
   updateHUD();
   requestAnimationFrame(loop);
@@ -516,6 +568,7 @@ function updateHUD() {
   document.getElementById('hp-p2').classList.toggle('turn', game.turn === 1);
 
   const banner = document.getElementById('turn-banner');
+  const otherLabel = game.cpu?.active ? "CPU'S SHOT" : "SISTER'S SHOT";
   if (game.phase === 'over') {
     banner.textContent = 'GAME OVER';
   } else if (game.myTurn()) {
@@ -523,7 +576,7 @@ function updateHUD() {
   } else if (game.phase === 'flying') {
     banner.textContent = 'INCOMING';
   } else {
-    banner.textContent = "SISTER'S SHOT";
+    banner.textContent = otherLabel;
   }
 
   const w = game.wind;
