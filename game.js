@@ -25,8 +25,8 @@ function randomCode(len = 4) {
 const WORLD_W = 1600;
 const WORLD_H = 900;
 const GROUND_Y = 800;
-const GRAVITY_Y = 0.65;            // gentle pull = long arcs across the world
-const LAUNCH_SCALE = 40;           // bird speed = LAUNCH_SCALE * power (Matter units/step)
+const GRAVITY_Y = 0.4;             // gentle pull = long, lazy arcs across the world
+const LAUNCH_SCALE = 30;           // bird speed = LAUNCH_SCALE * power (Matter units/step)
 const MAX_PULL = 260;              // px from slingshot anchor
 
 const SLING_A = { x: 320, y: GROUND_Y - 110 };
@@ -54,9 +54,10 @@ class Game {
     this.cpu = null;
 
     this.engine = M.Engine.create();
-    // Override Matter's default gravity scale so engine.gravity.y matches my preview's per-step velocity delta.
+    // gravity.scale = 1/deltaTime² so engine.gravity.y becomes the per-step velocity delta directly.
     this.engine.gravity.scale = 0.0036;
     this.engine.gravity.y = GRAVITY_Y;
+    this.engine.enableSleeping = false;       // never let pigs/blocks sleep — every hit wakes them
     this.world = this.engine.world;
     this.pigs = [];
     this.blocks = [];
@@ -89,7 +90,7 @@ class Game {
             centerX + off,
             baseY - blockH / 2 - r * (blockH + 1),
             blockW, blockH,
-            { density: 0.0018, friction: 0.25, frictionStatic: 0.35, restitution: 0.15, label: 'block' }
+            { density: 0.0008, friction: 0.15, frictionStatic: 0.2, restitution: 0.2, label: 'block' }
           );
           b._w = blockW; b._h = blockH;
           this.blocks.push(b);
@@ -99,7 +100,7 @@ class Game {
       // Top horizontal beam
       const beamW = gap + blockW * 1.3, beamH = 22;
       const beam = M.Bodies.rectangle(centerX, baseY - blockH * 2 - beamH / 2 - 2, beamW, beamH,
-        { density: 0.0016, friction: 0.25, frictionStatic: 0.35, restitution: 0.15, label: 'block' });
+        { density: 0.0007, friction: 0.15, frictionStatic: 0.2, restitution: 0.2, label: 'block' });
       beam._w = beamW; beam._h = beamH;
       this.blocks.push(beam);
       M.World.add(this.world, beam);
@@ -207,11 +208,11 @@ class Game {
   launchBird(side, power, angle) {
     const s = this.slingshotPos(side);
     const speed = LAUNCH_SCALE * power;
-    const bird = M.Bodies.circle(s.x, s.y - 14, 22, {
-      density: 0.012,          // heavy wrecking ball — barrels through blocks
+    const bird = M.Bodies.circle(s.x, s.y - 14, 24, {
+      density: 0.025,          // wrecking ball — ~30× the block mass per unit area
       friction: 0.5,
-      frictionAir: 0.0008,     // barely any drag, flies far
-      restitution: 0.18,
+      frictionAir: 0.0005,     // virtually no drag — flies far
+      restitution: 0.15,
       label: 'bird'
     });
     bird.ownerSide = side;
