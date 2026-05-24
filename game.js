@@ -390,9 +390,9 @@ class Game {
 
   makeBlock(x, y, w, h, material, angle = 0) {
     const specs = {
-      wood: { density: 0.0010, hp: 22, color: '#c98b45', stroke: '#7a4b18', dust: '#f1c179', restitution: 0.12 },
-      glass: { density: 0.00065, hp: 11, color: '#b8f7ff', stroke: '#6bc9da', dust: '#d6fcff', restitution: 0.04 },
-      stone: { density: 0.00175, hp: 40, color: '#b6bec8', stroke: '#6b7380', dust: '#d4dae2', restitution: 0.06 },
+      wood: { density: 0.0010, hp: 30, color: '#c98b45', stroke: '#7a4b18', dust: '#f1c179', restitution: 0.12 },
+      glass: { density: 0.00065, hp: 16, color: '#b8f7ff', stroke: '#6bc9da', dust: '#d6fcff', restitution: 0.04 },
+      stone: { density: 0.00175, hp: 52, color: '#b6bec8', stroke: '#6b7380', dust: '#d4dae2', restitution: 0.06 },
     };
     const spec = specs[material];
     const body = M.Bodies.rectangle(x, y, w, h, {
@@ -424,8 +424,8 @@ class Game {
     });
     pig.ownerSide = ownerSide;
     pig.pigId = this.pigId++;
-    pig.maxHp = 14;
-    pig.hp = 14;
+    pig.maxHp = 24;
+    pig.hp = 24;
     pig.dead = false;
     this.pigsAlive[ownerSide]++;
     return this.addBody(pig, this.pigs);
@@ -440,7 +440,7 @@ class Game {
     });
     tnt.ownerSide = ownerSide;
     tnt.tntId = `t${ownerSide}-${x}-${y}`;
-    tnt.hp = 7;
+    tnt.hp = 12;
     tnt.armed = true;
     tnt._w = 52;
     tnt._h = 52;
@@ -700,34 +700,34 @@ class Game {
       const other = bird === a ? b : a;
       const dir = Math.atan2(bird.velocity.y, bird.velocity.x);
       this.sparkArc(contactX, contactY, this.avatarPreset(bird.avatarKey).body, dir);
-      if (other.label === 'pig') this.accumulateHit(other, speed * 3.1 + 8);
-      if (other.label === 'block') this.accumulateHit(other, speed * 2.1 + 4);
-      if (other.label === 'tnt') this.accumulateHit(other, speed * 2.2 + 6);
+      if (other.label === 'pig') this.accumulateHit(other, speed * 1.6 + 3);
+      if (other.label === 'block') this.accumulateHit(other, speed * 1.2 + 2);
+      if (other.label === 'tnt') this.accumulateHit(other, speed * 1.2 + 3);
     }
 
     if (tags.includes('pig')) {
       const pig = a.label === 'pig' ? a : b;
       const other = pig === a ? b : a;
-      if (other.label === 'block' && speed > 2.5) this.accumulateHit(pig, speed * 1.1);
-      if ((other.label === 'ground' || other.label === 'wall') && aSpeed + bSpeed > 6) this.accumulateHit(pig, speed * 1.3);
-      if (other.label === 'pig' && speed > 5) this.accumulateHit(pig, speed * 0.6);
+      if (other.label === 'block' && speed > 2.5) this.accumulateHit(pig, speed * 0.55);
+      if ((other.label === 'ground' || other.label === 'wall') && aSpeed + bSpeed > 6) this.accumulateHit(pig, speed * 0.65);
+      if (other.label === 'pig' && speed > 5) this.accumulateHit(pig, speed * 0.3);
     }
 
     if (tags.includes('block')) {
       const block = a.label === 'block' ? a : b;
       const other = block === a ? b : a;
-      if (other.label === 'ground' && speed > 5) this.accumulateHit(block, speed * 0.75);
-      if (other.label === 'block' && speed > 5) this.accumulateHit(block, speed * 0.45);
-      if (other.label === 'pig' && speed > 4) this.accumulateHit(block, speed * 0.2);
+      if (other.label === 'ground' && speed > 5) this.accumulateHit(block, speed * 0.38);
+      if (other.label === 'block' && speed > 5) this.accumulateHit(block, speed * 0.22);
+      if (other.label === 'pig' && speed > 4) this.accumulateHit(block, speed * 0.12);
     }
 
     if (tags.includes('tnt')) {
       const tnt = a.label === 'tnt' ? a : b;
       const other = tnt === a ? b : a;
       if (!tnt.armed) return;
-      if (other.label === 'bird') this.accumulateHit(tnt, speed * 3 + 8);
+      if (other.label === 'bird') this.accumulateHit(tnt, speed * 1.7 + 4);
       if ((other.label === 'block' || other.label === 'ground' || other.label === 'pig') && speed > 4.5) {
-        this.accumulateHit(tnt, speed * 0.95);
+        this.accumulateHit(tnt, speed * 0.45);
       }
     }
   }
@@ -789,13 +789,13 @@ class Game {
       const dx = body.position.x - x;
       const dy = body.position.y - y;
       const d = Math.max(18, Math.hypot(dx, dy));
-      if (d > 220) continue;
-      const force = (220 - d) / 220;
+      if (d > 170) continue;
+      const force = (170 - d) / 170;
       const nx = dx / d;
       const ny = dy / d;
-      M.Body.applyForce(body, body.position, { x: nx * force * 0.12, y: ny * force * 0.12 - 0.008 * force });
-      if (body.label === 'pig') this.accumulateHit(body, 10 + force * 14);
-      if (body.label === 'block') this.accumulateHit(body, 12 + force * 20);
+      M.Body.applyForce(body, body.position, { x: nx * force * 0.06, y: ny * force * 0.06 - 0.004 * force });
+      if (body.label === 'pig') this.accumulateHit(body, 4 + force * 8);
+      if (body.label === 'block') this.accumulateHit(body, 6 + force * 11);
       if (body.label === 'tnt') this.accumulateHit(body, 999);
     }
   }
@@ -898,7 +898,8 @@ class Game {
       this.phase = 'roundOver';
       this.roundResetAt = performance.now() + ROUND_RESET_MS;
       const winnerLabel = this.localWon(winner) ? 'YOU' : this.playerName(winner);
-      this.setToast(`${winnerLabel} TAKES ROUND ${this.round}`, ROUND_RESET_MS - 250);
+      const winnerVerb = winnerLabel === 'YOU' || winnerLabel.includes('+') ? 'TAKE' : 'TAKES';
+      this.setToast(`${winnerLabel} ${winnerVerb} ROUND ${this.round}`, ROUND_RESET_MS - 250);
       return;
     }
     if (this.isCoop()) {
