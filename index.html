@@ -85,10 +85,7 @@
     .hp.p2 { border-color: var(--p2); }
     .hp.turn { box-shadow: 0 0 20px currentColor; }
     .hp .name { font-weight: 700; font-size: 0.9rem; letter-spacing: 0.1em; }
-    .hp .bar { height: 10px; background: rgba(255,255,255,0.18); border-radius: 6px; margin-top: 4px; overflow: hidden; }
-    .hp .bar > div { height: 100%; transition: width 200ms ease; }
-    .hp.p1 .bar > div { background: var(--p1); }
-    .hp.p2 .bar > div { background: var(--p2); }
+    .hp .pigs { font-size: 1.4rem; line-height: 1; margin-top: 4px; letter-spacing: 0.05em; }
     #turn-banner {
       font-weight: 700;
       font-size: 1rem;
@@ -152,20 +149,20 @@
   <div id="hud" class="hidden">
     <div class="hp p1" id="hp-p1">
       <div class="name">MANON</div>
-      <div class="bar"><div style="width:100%"></div></div>
+      <div class="pigs" id="pigs-p1">🐷🐷🐷</div>
     </div>
     <div id="turn-banner">…</div>
     <div class="hp p2" id="hp-p2">
       <div class="name">MARGOT</div>
-      <div class="bar"><div style="width:100%"></div></div>
+      <div class="pigs" id="pigs-p2">🐷🐷🐷</div>
     </div>
   </div>
 
-  <div id="wind" class="hidden"></div>
-  <div id="power-meter" class="hidden"><div style="height:50%"></div><span>POWER</span></div>
+  <div id="wind" class="hidden" style="display:none"></div>
+  <div id="power-meter" class="hidden" style="display:none"><div style="height:50%"></div><span>POWER</span></div>
   <button id="fire-btn" class="hidden" style="display:none">FIRE</button>
   <div id="toast" class="toast"></div>
-  <div class="footer-hint">touch and pull back ⇠ like a slingshot · release to fire</div>
+  <div class="footer-hint">pull the slingshot back, let go to fling · pop the other sister's pigs</div>
 
   <div id="lobby" class="overlay">
     <h1><span class="pink">Angry Manon</span> <span class="cyan">Angry Margot</span></h1>
@@ -200,6 +197,7 @@
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
   <script type="module" src="./game.js"></script>
 </body>
 </html>
