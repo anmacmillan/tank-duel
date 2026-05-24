@@ -91,6 +91,12 @@
     .hp.p2 { border-color: var(--p2); }
     .hp.turn { box-shadow: 0 0 20px currentColor; }
     .hp .name { font-weight: 700; font-size: 0.9rem; letter-spacing: 0.1em; }
+    .hp .score {
+      margin-top: 4px;
+      font-size: 0.72rem;
+      letter-spacing: 0.16em;
+      opacity: 0.82;
+    }
     .hp .pigs { font-size: 1.4rem; line-height: 1; margin-top: 4px; letter-spacing: 0.05em; }
     #turn-banner {
       font-weight: 800;
@@ -157,11 +163,13 @@
   <div id="hud" class="hidden">
     <div class="hp p1" id="hp-p1">
       <div class="name">MANON</div>
+      <div class="score" id="score-p1">ROUNDS 0</div>
       <div class="pigs" id="pigs-p1">🐷🐷🐷</div>
     </div>
     <div id="turn-banner">…</div>
     <div class="hp p2" id="hp-p2">
       <div class="name">MARGOT</div>
+      <div class="score" id="score-p2">ROUNDS 0</div>
       <div class="pigs" id="pigs-p2">🐷🐷🐷</div>
     </div>
   </div>
@@ -180,7 +188,8 @@
       <button id="join-btn" class="cyan">JOIN GAME</button>
     </div>
     <div class="row">
-      <button id="cpu-btn">PLAY vs CHAOS BOT</button>
+      <button id="team-btn">TEAM UP vs CHAOS ROBOT PIG</button>
+      <button id="cpu-btn">SOLO vs CHAOS ROBOT PIG</button>
     </div>
     <p id="lobby-status" class="hint"></p>
   </div>

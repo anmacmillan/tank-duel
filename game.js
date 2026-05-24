@@ -11,9 +11,163 @@ const GRAVITY_Y = 0.44;
 const LAUNCH_SCALE = 31;
 const MAX_PULL = 270;
 const SHOT_TIMEOUT_FRAMES = 8 * 60;
+const ROUND_RESET_MS = 2600;
 
 const SLING_A = { x: 260, y: GROUND_Y - 128 };
 const SLING_B = { x: WORLD_W - 260, y: GROUND_Y - 128 };
+const AVATAR_PRESETS = {
+  manon: {
+    name: 'MANON',
+    body: '#18161d',
+    outline: '#62566f',
+    cheek: '#9c7db8',
+    iris: '#ff7fd1',
+    beak: '#ffbc4d',
+    trail: '96,84,118',
+    crest: 'spikes',
+    accent: '#d8c8f4',
+  },
+  margot: {
+    name: 'MARGOT',
+    body: '#ff69b9',
+    outline: '#a52a6f',
+    cheek: '#ffd0ec',
+    iris: '#fff4fa',
+    beak: '#ffc857',
+    trail: '255,105,185',
+    crest: 'bow',
+    accent: '#fff4fb',
+  },
+  pinkBlob: {
+    name: 'PINK BLOB',
+    body: '#ff6c61',
+    outline: '#912f2d',
+    cheek: '#ffc3bd',
+    iris: '#fff7eb',
+    beak: '#ffbf3d',
+    trail: '255,108,97',
+    crest: 'tuft',
+    accent: '#ffe7a9',
+  },
+  chaosPig: {
+    name: 'CHAOS ROBOT PIG',
+    body: '#8aa1ac',
+    outline: '#334851',
+    cheek: '#c5d6dd',
+    iris: '#8ef7ff',
+    beak: '#b9ff57',
+    trail: '138,161,172',
+    crest: 'pigBot',
+    accent: '#1a2f38',
+  },
+};
+
+const MINECRAFT_AVATAR_DEFAULTS = {
+  manon: {
+    hairColor: '#d3a4ff',
+    shirtColor: '#121212',
+    skinColor: '#f5f5f7',
+    accessory: 'wings',
+    eyes: 'gothic',
+    hairStyle: 'long',
+    outfit: 'default',
+  },
+  margot: {
+    hairColor: '#ff80b3',
+    shirtColor: '#ff3385',
+    skinColor: '#ffe6ea',
+    accessory: 'crown',
+    eyes: 'princess',
+    hairStyle: 'long',
+    outfit: 'princess-gown',
+  },
+};
+
+function safeJsonParse(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function hexToRgb(hex) {
+  const clean = String(hex || '').replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return { r: 255, g: 255, b: 255 };
+  return {
+    r: parseInt(clean.slice(0, 2), 16),
+    g: parseInt(clean.slice(2, 4), 16),
+    b: parseInt(clean.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  const toHex = (v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function mixHex(a, b, ratio = 0.5) {
+  const ra = hexToRgb(a);
+  const rb = hexToRgb(b);
+  return rgbToHex({
+    r: ra.r + (rb.r - ra.r) * ratio,
+    g: ra.g + (rb.g - ra.g) * ratio,
+    b: ra.b + (rb.b - ra.b) * ratio,
+  });
+}
+
+function darkenHex(hex, ratio = 0.45) {
+  return mixHex(hex, '#000000', ratio);
+}
+
+function hexToRgbString(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return `${r},${g},${b}`;
+}
+
+function readMinecraftAvatar(playerType) {
+  const defaults = MINECRAFT_AVATAR_DEFAULTS[playerType] || {};
+  const saved = safeJsonParse(window.localStorage?.getItem?.(`minecraft_avatar_${playerType}`));
+  return { ...defaults, ...(saved && typeof saved === 'object' ? saved : {}) };
+}
+
+function blobAvatarFromMinecraft(playerType) {
+  const fallback = AVATAR_PRESETS[playerType];
+  const settings = readMinecraftAvatar(playerType);
+  const eyeColors = {
+    gothic: '#ff7fd1',
+    princess: '#7ae2ff',
+    galaxy: '#d7a6ff',
+    mermaid: '#7cffdd',
+    wizard: '#ffd36b',
+    standard: '#fff7eb',
+  };
+
+  let crest = 'tuft';
+  if (settings.accessory === 'crown') crest = 'crown';
+  else if (settings.accessory === 'hat') crest = 'hat';
+  else if (String(settings.accessory || '').includes('wings')) crest = 'wings';
+  else if (settings.hairStyle === 'braids') crest = 'braids';
+  else if (settings.hairStyle === 'ponytail' || settings.hairStyle === 'pigtails') crest = 'bow';
+  else if (settings.outfit === 'wednesday-dress' || settings.eyes === 'gothic') crest = 'spikes';
+
+  const body = settings.shirtColor || fallback.body;
+  const accent = settings.hairColor || fallback.accent;
+  const cheek = mixHex(settings.skinColor || fallback.cheek, '#ffffff', 0.18);
+
+  return {
+    name: fallback.name,
+    body,
+    outline: darkenHex(body, 0.5),
+    cheek,
+    iris: eyeColors[settings.eyes] || fallback.iris,
+    beak: settings.accessory === 'crown' || String(settings.outfit || '').includes('princess') ? '#ffd700' : fallback.beak,
+    trail: hexToRgbString(body),
+    crest,
+    accent,
+    settings,
+  };
+}
 
 const M = typeof Matter !== 'undefined' ? Matter : null;
 
@@ -134,23 +288,45 @@ class JuiceAudio {
 const audio = new JuiceAudio();
 
 class Game {
-  constructor(canvas, side, seed, send) {
+  constructor(canvas, side, seed, send, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.side = side;
+    this.mode = options.mode || 'versus';
+    this.baseSeed = seed;
     this.seed = seed;
     this.rng = mulberry32(seed);
     this.send = send;
     this.turn = 0;
+    this.startingTurn = 0;
+    this.startingController = 0;
+    this.activeController = 0;
+    this.round = 1;
+    this.roundWins = [0, 0];
     this.phase = 'aim';
     this.drag = null;
     this.bird = null;
     this.toast = null;
     this.toastUntil = 0;
+    this.roundResetAt = 0;
     this.flyFrames = 0;
     this.settledFrames = 0;
     this.lastT = performance.now();
     this.cpu = null;
+    this.resetRoundState(seed);
+  }
+
+  resetRoundState(seed) {
+    this.seed = seed;
+    this.rng = mulberry32(seed);
+    this.turn = this.startingTurn;
+    this.activeController = this.startingController;
+    this.phase = 'aim';
+    this.drag = null;
+    this.bird = null;
+    this.roundResetAt = 0;
+    this.flyFrames = 0;
+    this.settledFrames = 0;
     this.pigId = 0;
     this.blockId = 0;
     this.pigs = [];
@@ -161,6 +337,7 @@ class Game {
     this.trail = [];
     this.pendingHits = new Map();
     this.shake = 0;
+    this.freezeWorld = true;
     this.clouds = [];
     this.hills = [];
     this.stars = [];
@@ -312,7 +489,67 @@ class Game {
   }
 
   myTurn() {
-    return this.turn === this.side && this.phase === 'aim';
+    if (this.phase !== 'aim') return false;
+    if (this.isCoop()) return this.turn === 0 && this.activeController === this.side;
+    return this.turn === this.side;
+  }
+
+  isSolo() {
+    return this.mode === 'solo';
+  }
+
+  isCoop() {
+    return this.mode === 'coop';
+  }
+
+  avatarPreset(key) {
+    if (key === 'manon' || key === 'margot') return blobAvatarFromMinecraft(key);
+    return AVATAR_PRESETS[key] || AVATAR_PRESETS.pinkBlob;
+  }
+
+  controllerAvatarKey(controllerId) {
+    if (this.isSolo()) return controllerId === 1 ? 'chaosPig' : 'pinkBlob';
+    return controllerId === 0 ? 'manon' : 'margot';
+  }
+
+  playerName(side) {
+    if (this.isCoop()) return side === 0 ? 'MANON + MARGOT' : 'CHAOS ROBOT PIG';
+    if (this.isSolo()) return side === 0 ? 'PINK BLOB' : 'CHAOS ROBOT PIG';
+    return this.avatarPreset(this.controllerAvatarKey(side)).name;
+  }
+
+  localWon(winnerSide) {
+    return this.isCoop() ? winnerSide === 0 : winnerSide === this.side;
+  }
+
+  shotSideForLocal() {
+    return this.isCoop() ? 0 : this.side;
+  }
+
+  localShooterId() {
+    return this.isCoop() ? this.side : this.shotSideForLocal();
+  }
+
+  avatarKeyForShot(side, shooterId = side) {
+    if ((this.isSolo() || this.isCoop()) && side === 1) return 'chaosPig';
+    if (this.isCoop()) return this.controllerAvatarKey(shooterId);
+    if (this.isSolo()) return 'pinkBlob';
+    return this.controllerAvatarKey(side);
+  }
+
+  currentAimAvatarKey() {
+    return this.avatarKeyForShot(this.shotSideForLocal(), this.localShooterId());
+  }
+
+  idleAvatarKey(side) {
+    if (side === 0 && this.isCoop()) return this.controllerAvatarKey(this.activeController);
+    return this.avatarKeyForShot(side, side);
+  }
+
+  activeTurnLabel() {
+    if (this.myTurn()) return 'YOUR TURN';
+    if (this.isCoop() && this.turn === 0) return `${this.avatarPreset(this.controllerAvatarKey(this.activeController)).name}'S TURN`;
+    return `${this.playerName(this.turn)}'S TURN`;
   }
 
   slingshotPos(side) {
@@ -370,7 +607,7 @@ class Game {
 
   onPointerMove(wx, wy) {
     if (!this.drag || !this.myTurn()) return;
-    const s = this.slingshotPos(this.side);
+    const s = this.slingshotPos(this.shotSideForLocal());
     let dx = wx - s.x;
     let dy = wy - s.y;
     const d = Math.hypot(dx, dy);
@@ -386,7 +623,7 @@ class Game {
   onPointerUp() {
     if (!this.drag) return;
     if (this.myTurn() && this.drag.pulled) {
-      const s = this.slingshotPos(this.side);
+      const s = this.slingshotPos(this.shotSideForLocal());
       const pullX = s.x - this.drag.x;
       const pullY = s.y - this.drag.y;
       const pull = Math.hypot(pullX, pullY);
@@ -400,11 +637,16 @@ class Game {
   }
 
   fire(power, angle) {
-    this.send({ type: 'fire', side: this.side, power, angle });
-    this.launchBird(this.side, power, angle);
+    this.fireShot(this.shotSideForLocal(), power, angle, this.localShooterId());
   }
 
-  launchBird(side, power, angle) {
+  fireShot(side, power, angle, shooterId = side) {
+    const avatarKey = this.avatarKeyForShot(side, shooterId);
+    this.send({ type: 'fire', side, power, angle, shooterId, avatarKey });
+    this.launchBird(side, power, angle, avatarKey, shooterId);
+  }
+
+  launchBird(side, power, angle, avatarKey = this.avatarKeyForShot(side), shooterId = side) {
     const s = this.slingshotPos(side);
     const speed = LAUNCH_SCALE * power;
     const bird = M.Bodies.circle(s.x, s.y - 12, 24, {
@@ -415,16 +657,19 @@ class Game {
       label: 'bird',
     });
     bird.ownerSide = side;
+    bird.avatarKey = avatarKey;
+    bird.shooterId = shooterId;
     bird.maxHp = 999;
     M.Body.setVelocity(bird, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed });
     M.World.add(this.world, bird);
     this.bird = bird;
+    this.freezeWorld = false;
     this.phase = 'flying';
     this.flyFrames = 0;
     this.settledFrames = 0;
     this.trail = [];
     this.shakeScreen(7 + power * 8);
-    this.burst(s.x, s.y - 10, side === 0 ? '#ff6b6b' : '#52d6ff', 14, 2, 7, 5, 0.12);
+    this.burst(s.x, s.y - 10, this.avatarPreset(avatarKey).body, 14, 2, 7, 5, 0.12);
     audio.launch(power);
   }
 
@@ -454,7 +699,7 @@ class Game {
       const bird = a.label === 'bird' ? a : b;
       const other = bird === a ? b : a;
       const dir = Math.atan2(bird.velocity.y, bird.velocity.x);
-      this.sparkArc(contactX, contactY, bird.ownerSide === 0 ? '#ff7b70' : '#87efff', dir);
+      this.sparkArc(contactX, contactY, this.avatarPreset(bird.avatarKey).body, dir);
       if (other.label === 'pig') this.accumulateHit(other, speed * 3.1 + 8);
       if (other.label === 'block') this.accumulateHit(other, speed * 2.1 + 4);
       if (other.label === 'tnt') this.accumulateHit(other, speed * 2.2 + 6);
@@ -567,6 +812,10 @@ class Game {
   }
 
   step() {
+    if (this.freezeWorld && this.phase === 'aim') {
+      return;
+    }
+
     M.Engine.update(this.engine, 1000 / 60);
     this.processPendingHits();
 
@@ -575,7 +824,7 @@ class Game {
         x: this.bird.position.x,
         y: this.bird.position.y,
         life: 14,
-        side: this.bird.ownerSide,
+        avatarKey: this.bird.avatarKey,
       });
       if (this.trail.length > 18) this.trail.shift();
     }
@@ -592,6 +841,11 @@ class Game {
     for (const t of this.trail) t.life -= 1;
     this.trail = this.trail.filter((t) => t.life > 0);
     this.shake *= 0.84;
+
+    if (this.phase === 'roundOver' && performance.now() >= this.roundResetAt) {
+      this.startNextRound();
+      return;
+    }
 
     if (this.phase === 'flying') {
       this.flyFrames++;
@@ -619,13 +873,18 @@ class Game {
   }
 
   endShot() {
+    const shotOwnerSide = this.bird?.ownerSide ?? this.turn;
+    const shotShooterId = this.bird?.shooterId ?? shotOwnerSide;
     if (this.bird) {
       M.World.remove(this.world, this.bird);
       this.bird = null;
     }
     this.trail = [];
-    const firerSide = this.turn;
-    if (firerSide === this.side) {
+    const localHumanShot = this.isCoop()
+      ? shotOwnerSide === 0 && shotShooterId === this.side
+      : shotOwnerSide === this.side;
+    const localCpuShot = shotOwnerSide === 1 && this.cpu?.active && this.cpu?.host;
+    if (localHumanShot || localCpuShot) {
       const deadIds = this.pigs.filter((p) => p.dead).map((p) => p.pigId);
       this.send({ type: 'endShot', deadIds, pigsAlive: this.pigsAlive.slice() });
     }
@@ -634,19 +893,39 @@ class Game {
 
   advanceTurn() {
     if (this.pigsAlive[0] === 0 || this.pigsAlive[1] === 0) {
-      this.phase = 'over';
       const winner = this.pigsAlive[0] > 0 ? 0 : 1;
-      this.setToast(winner === this.side ? 'YOU WIN' : (this.cpu?.active ? 'CPU WINS' : 'SISTER WINS'), 999999);
+      this.roundWins[winner] += 1;
+      this.phase = 'roundOver';
+      this.roundResetAt = performance.now() + ROUND_RESET_MS;
+      const winnerLabel = this.localWon(winner) ? 'YOU' : this.playerName(winner);
+      this.setToast(`${winnerLabel} TAKES ROUND ${this.round}`, ROUND_RESET_MS - 250);
       return;
     }
-    this.turn = 1 - this.turn;
+    if (this.isCoop()) {
+      if (this.turn === 0) {
+        this.turn = 1;
+        this.activeController = 1 - this.activeController;
+      } else {
+        this.turn = 0;
+      }
+    } else {
+      this.turn = 1 - this.turn;
+    }
     this.phase = 'aim';
-    this.setToast(this.myTurn() ? 'YOUR TURN' : (this.cpu?.active ? "CPU'S TURN" : "SISTER'S TURN"), 1300);
+    this.setToast(this.activeTurnLabel(), 1300);
+  }
+
+  startNextRound() {
+    this.round += 1;
+    this.startingTurn = 1 - this.startingTurn;
+    if (this.isCoop()) this.startingController = 1 - this.startingController;
+    this.resetRoundState(this.baseSeed + this.round * 977);
+    this.setToast(`ROUND ${this.round}`, 1200);
   }
 
   receive(msg) {
     if (msg.type === 'fire') {
-      this.launchBird(msg.side, msg.power, msg.angle);
+      this.launchBird(msg.side, msg.power, msg.angle, msg.avatarKey, msg.shooterId);
     } else if (msg.type === 'endShot') {
       for (const id of msg.deadIds || []) {
         const pig = this.pigs.find((p) => p.pigId === id);
@@ -689,7 +968,14 @@ class Game {
     for (const b of this.blocks) this.drawBlock(b);
     for (const t of this.tnts) this.drawTnt(t);
     for (const p of this.pigs) if (!p.dead) this.drawPig(p);
-    if (this.bird) this.drawBirdAt(this.bird.position.x, this.bird.position.y, this.bird.ownerSide ?? this.turn, this.bird.angle);
+    if (this.bird) {
+      this.drawBirdAt(
+        this.bird.position.x,
+        this.bird.position.y,
+        this.bird.avatarKey || this.avatarKeyForShot(this.bird.ownerSide ?? this.turn, this.bird.shooterId),
+        this.bird.angle
+      );
+    }
 
     if (this.myTurn() && this.drag?.pulled) {
       this.drawSlingshotPull();
@@ -777,13 +1063,13 @@ class Game {
     ctx.stroke();
 
     if (!this.bird && this.turn === side && this.phase === 'aim' && !(this.myTurn() && this.drag?.pulled)) {
-      this.drawBirdAt(s.x, s.y - 12, side, 0);
+      this.drawBirdAt(s.x, s.y - 12, this.idleAvatarKey(side), 0);
     }
   }
 
   drawSlingshotPull() {
     const ctx = this.ctx;
-    const s = this.slingshotPos(this.side);
+    const s = this.slingshotPos(this.shotSideForLocal());
     const cx0 = this.w2cx(s.x);
     const cy0 = this.w2cy(s.y);
     const cxd = this.w2cx(this.drag.x);
@@ -798,12 +1084,12 @@ class Game {
     ctx.lineTo(cx0 + this.s(40), cy0 - this.s(4));
     ctx.stroke();
 
-    this.drawBirdAt(this.drag.x, this.drag.y, this.side, 0);
+    this.drawBirdAt(this.drag.x, this.drag.y, this.currentAimAvatarKey(), 0);
   }
 
   drawTrajectoryPreview() {
     const ctx = this.ctx;
-    const s = this.slingshotPos(this.side);
+    const s = this.slingshotPos(this.shotSideForLocal());
     const pullX = s.x - this.drag.x;
     const pullY = s.y - this.drag.y;
     const pull = Math.hypot(pullX, pullY);
@@ -832,11 +1118,13 @@ class Game {
 
   drawTurnPulse() {
     const ctx = this.ctx;
-    const s = this.slingshotPos(this.side);
+    const s = this.slingshotPos(this.shotSideForLocal());
     const cx = this.w2cx(s.x);
     const cy = this.w2cy(s.y - 12);
+    const accent = this.avatarPreset(this.currentAimAvatarKey()).accent;
+    const { r, g, b } = hexToRgb(accent);
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 240);
-    ctx.strokeStyle = `rgba(255, 251, 120, ${0.45 + pulse * 0.35})`;
+    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${0.45 + pulse * 0.35})`;
     ctx.lineWidth = this.s(4);
     ctx.beginPath();
     ctx.arc(cx, cy, this.s(32 + pulse * 14), 0, Math.PI * 2);
@@ -926,37 +1214,50 @@ class Game {
     ctx.translate(this.w2cx(p.position.x), this.w2cy(p.position.y));
     ctx.rotate(p.angle);
     const r = this.s(p.circleRadius || 22);
+    const robot = p.ownerSide === 1 && (this.isSolo() || this.isCoop());
 
-    ctx.fillStyle = '#8ad84b';
+    ctx.fillStyle = robot ? '#9aaeb7' : '#8ad84b';
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#467c22';
+    ctx.strokeStyle = robot ? '#324750' : '#467c22';
     ctx.lineWidth = this.s(2);
     ctx.stroke();
 
-    ctx.fillStyle = '#7cc640';
-    ctx.beginPath();
-    ctx.arc(-r * 0.35, -r * 0.8, r * 0.22, 0, Math.PI * 2);
-    ctx.arc(r * 0.35, -r * 0.8, r * 0.22, 0, Math.PI * 2);
-    ctx.fill();
+    if (robot) {
+      ctx.fillStyle = '#d4e0e5';
+      ctx.fillRect(-r * 0.62, -r * 0.9, r * 0.42, r * 0.24);
+      ctx.fillRect(r * 0.2, -r * 0.9, r * 0.42, r * 0.24);
+      ctx.strokeStyle = '#324750';
+      ctx.lineWidth = this.s(1.6);
+      ctx.strokeRect(-r * 0.62, -r * 0.9, r * 0.42, r * 0.24);
+      ctx.strokeRect(r * 0.2, -r * 0.9, r * 0.42, r * 0.24);
+      ctx.fillStyle = '#66f3ff';
+      ctx.fillRect(-r * 0.1, -r * 1.18, r * 0.2, r * 0.22);
+    } else {
+      ctx.fillStyle = '#7cc640';
+      ctx.beginPath();
+      ctx.arc(-r * 0.35, -r * 0.8, r * 0.22, 0, Math.PI * 2);
+      ctx.arc(r * 0.35, -r * 0.8, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.fillStyle = 'white';
     ctx.beginPath();
     ctx.arc(-r * 0.3, -r * 0.2, r * 0.26, 0, Math.PI * 2);
     ctx.arc(r * 0.3, -r * 0.2, r * 0.26, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#1d1d1d';
+    ctx.fillStyle = robot ? '#66f3ff' : '#1d1d1d';
     ctx.beginPath();
     ctx.arc(-r * 0.28, -r * 0.18, r * 0.1, 0, Math.PI * 2);
     ctx.arc(r * 0.28, -r * 0.18, r * 0.1, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = '#5d912c';
+    ctx.fillStyle = robot ? '#6c8791' : '#5d912c';
     ctx.beginPath();
     ctx.ellipse(0, r * 0.22, r * 0.45, r * 0.3, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#2f5d15';
+    ctx.fillStyle = robot ? '#29414c' : '#2f5d15';
     ctx.beginPath();
     ctx.arc(-r * 0.13, r * 0.22, r * 0.06, 0, Math.PI * 2);
     ctx.arc(r * 0.13, r * 0.22, r * 0.06, 0, Math.PI * 2);
@@ -971,41 +1272,118 @@ class Game {
     ctx.restore();
   }
 
-  drawBirdAt(wx, wy, side, rot = 0) {
+  drawBirdAt(wx, wy, avatarKey, rot = 0) {
     const ctx = this.ctx;
     const r = this.s(21);
+    const avatar = this.avatarPreset(avatarKey);
     ctx.save();
     ctx.translate(this.w2cx(wx), this.w2cy(wy));
     ctx.rotate(rot);
-    const body = side === 0 ? '#ff6c61' : '#59d9ff';
-    const shadow = side === 0 ? '#912f2d' : '#20789b';
 
-    ctx.fillStyle = body;
+    ctx.fillStyle = avatar.body;
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = shadow;
+    ctx.strokeStyle = avatar.outline;
     ctx.lineWidth = this.s(2);
     ctx.stroke();
 
+    ctx.fillStyle = avatar.cheek;
+    ctx.beginPath();
+    ctx.arc(-r * 0.22, r * 0.12, r * 0.22, 0, Math.PI * 2);
+    ctx.arc(r * 0.18, r * 0.2, r * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.fillStyle = 'white';
     ctx.beginPath();
-    ctx.arc(r * 0.2, -r * 0.18, r * 0.28, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#1d1d1d';
-    ctx.beginPath();
-    ctx.arc(r * 0.28, -r * 0.18, r * 0.11, 0, Math.PI * 2);
+    ctx.arc(-r * 0.12, -r * 0.12, r * 0.26, 0, Math.PI * 2);
+    ctx.arc(r * 0.22, -r * 0.15, r * 0.23, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = '#2a1820';
-    ctx.lineWidth = this.s(3);
+    ctx.fillStyle = avatar.iris;
     ctx.beginPath();
-    ctx.moveTo(-r * 0.15, -r * 0.58);
-    ctx.lineTo(r * 0.05, -r * 0.94);
-    ctx.lineTo(r * 0.35, -r * 0.62);
-    ctx.stroke();
+    ctx.arc(-r * 0.1, -r * 0.1, r * 0.11, 0, Math.PI * 2);
+    ctx.arc(r * 0.22, -r * 0.14, r * 0.1, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = '#ffbf3d';
+    ctx.fillStyle = '#101010';
+    ctx.beginPath();
+    ctx.arc(-r * 0.08, -r * 0.1, r * 0.05, 0, Math.PI * 2);
+    ctx.arc(r * 0.24, -r * 0.14, r * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = avatar.outline;
+    ctx.lineWidth = this.s(2.8);
+    if (avatar.crest === 'spikes') {
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.46, -r * 0.36);
+      ctx.lineTo(-r * 0.24, -r * 0.86);
+      ctx.lineTo(0, -r * 0.44);
+      ctx.lineTo(r * 0.2, -r * 0.92);
+      ctx.lineTo(r * 0.42, -r * 0.38);
+      ctx.stroke();
+    } else if (avatar.crest === 'bow') {
+      ctx.fillStyle = avatar.accent;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.22, -r * 0.62, r * 0.18, r * 0.12, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(r * 0.02, -r * 0.62, r * 0.18, r * 0.12, 0.35, 0, Math.PI * 2);
+      ctx.arc(-r * 0.1, -r * 0.62, r * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (avatar.crest === 'crown') {
+      ctx.fillStyle = '#ffd700';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.38, -r * 0.42);
+      ctx.lineTo(-r * 0.25, -r * 0.78);
+      ctx.lineTo(-r * 0.05, -r * 0.46);
+      ctx.lineTo(r * 0.12, -r * 0.84);
+      ctx.lineTo(r * 0.28, -r * 0.46);
+      ctx.lineTo(r * 0.42, -r * 0.42);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#9f7400';
+      ctx.stroke();
+    } else if (avatar.crest === 'hat') {
+      ctx.fillStyle = avatar.accent;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.34, -r * 0.45);
+      ctx.lineTo(0, -r * 1.02);
+      ctx.lineTo(r * 0.24, -r * 0.42);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(-r * 0.44, -r * 0.42, r * 0.8, r * 0.08);
+    } else if (avatar.crest === 'braids') {
+      ctx.strokeStyle = avatar.accent;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.5, -r * 0.1);
+      ctx.lineTo(-r * 0.62, r * 0.35);
+      ctx.moveTo(r * 0.46, -r * 0.06);
+      ctx.lineTo(r * 0.6, r * 0.32);
+      ctx.stroke();
+    } else if (avatar.crest === 'wings') {
+      ctx.strokeStyle = avatar.accent;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.5, -r * 0.16);
+      ctx.lineTo(-r * 0.9, -r * 0.44);
+      ctx.lineTo(-r * 0.62, -r * 0.04);
+      ctx.moveTo(r * 0.48, -r * 0.16);
+      ctx.lineTo(r * 0.9, -r * 0.44);
+      ctx.lineTo(r * 0.62, -r * 0.04);
+      ctx.stroke();
+    } else if (avatar.crest === 'pigBot') {
+      ctx.fillStyle = '#d9ecf2';
+      ctx.fillRect(-r * 0.38, -r * 0.75, r * 0.76, r * 0.18);
+      ctx.fillStyle = '#68f2ff';
+      ctx.fillRect(-r * 0.06, -r * 0.98, r * 0.12, r * 0.23);
+    } else {
+      ctx.strokeStyle = avatar.accent;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.12, -r * 0.52);
+      ctx.lineTo(r * 0.05, -r * 0.9);
+      ctx.lineTo(r * 0.28, -r * 0.58);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = avatar.beak;
     ctx.beginPath();
     ctx.moveTo(r * 0.62, -r * 0.06);
     ctx.lineTo(r * 1.28, 0);
@@ -1018,7 +1396,7 @@ class Game {
   drawTrailDot(t) {
     const ctx = this.ctx;
     const alpha = t.life / 14;
-    const color = t.side === 0 ? '255,108,97' : '89,217,255';
+    const color = this.avatarPreset(t.avatarKey || 'pinkBlob').trail;
     ctx.fillStyle = `rgba(${color}, ${alpha * 0.35})`;
     ctx.beginPath();
     ctx.arc(this.w2cx(t.x), this.w2cy(t.y), this.s((15 - t.life) * 0.65 + 5), 0, Math.PI * 2);
@@ -1060,6 +1438,7 @@ const joinForm = document.getElementById('join-form');
 let peer = null;
 let conn = null;
 let game = null;
+let hostMode = 'versus';
 
 function fitCanvas() {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -1074,6 +1453,7 @@ window.addEventListener('resize', fitCanvas);
 fitCanvas();
 
 document.getElementById('host-btn').addEventListener('click', startHost);
+document.getElementById('team-btn').addEventListener('click', startTeamHost);
 document.getElementById('join-btn').addEventListener('click', () => show(joinForm));
 document.getElementById('cpu-btn').addEventListener('click', startVsCpu);
 document.getElementById('host-back').addEventListener('click', () => { teardownPeer(); show(lobby); });
@@ -1093,16 +1473,28 @@ function teardownPeer() {
 }
 
 function startHost() {
+  hostMode = 'versus';
+  startHostedGame();
+}
+
+function startTeamHost() {
+  hostMode = 'coop';
+  startHostedGame();
+}
+
+function startHostedGame() {
   const code = randomCode();
   document.getElementById('room-code').textContent = code;
-  document.getElementById('host-status').textContent = 'Waiting for chaos partner...';
+  document.getElementById('host-status').textContent = hostMode === 'coop'
+    ? 'Waiting for team-mate to join the robot-pig raid...'
+    : 'Waiting for the other iPad to join...';
   show(hostWait);
 
   peer = new Peer(PEER_PREFIX + code, { debug: 1 });
   peer.on('error', (err) => {
     if (err.type === 'unavailable-id') {
       teardownPeer();
-      startHost();
+      startHostedGame();
       return;
     }
     document.getElementById('host-status').textContent = `Network error: ${err.type}`;
@@ -1112,8 +1504,8 @@ function startHost() {
     wireConn();
     c.on('open', () => {
       const seed = (Math.random() * 0x7fffffff) | 0;
-      conn.send({ type: 'init', seed });
-      startGame(0, seed);
+      conn.send({ type: 'init', seed, mode: hostMode });
+      startGame(0, seed, hostMode);
     });
   });
 }
@@ -1147,19 +1539,27 @@ function wireConn() {
 function onMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.type === 'init' && !game) {
-    startGame(1, msg.seed);
+    startGame(1, msg.seed, msg.mode || 'versus');
   } else if (game) {
     game.receive(msg);
   }
 }
 
-function startGame(side, seed) {
+function startGame(side, seed, mode = 'versus') {
   show(null);
   hud.classList.remove('hidden');
-  document.querySelector('#hp-p1 .name').textContent = 'PINK BLOB';
-  document.querySelector('#hp-p2 .name').textContent = 'BLUE BLOB';
-  game = new Game(canvas, side, seed, (payload) => conn?.send(payload));
-  game.setToast(game.myTurn() ? 'YOUR TURN' : "SISTER'S TURN", 1500);
+  if (mode === 'coop') {
+    document.querySelector('#hp-p1 .name').textContent = 'TEAM BLOBS';
+    document.querySelector('#hp-p2 .name').textContent = 'CHAOS ROBOT PIG';
+  } else {
+    document.querySelector('#hp-p1 .name').textContent = 'MANON';
+    document.querySelector('#hp-p2 .name').textContent = 'MARGOT';
+  }
+  game = new Game(canvas, side, seed, (payload) => conn?.send(payload), { mode });
+  if (mode === 'coop') {
+    game.cpu = { active: true, planned: null, host: side === 0 };
+  }
+  game.setToast(`ROUND 1 • ${game.activeTurnLabel()}`, 1600);
   requestAnimationFrame(loop);
 }
 
@@ -1167,16 +1567,16 @@ function startVsCpu() {
   show(null);
   hud.classList.remove('hidden');
   document.querySelector('#hp-p1 .name').textContent = 'PINK BLOB';
-  document.querySelector('#hp-p2 .name').textContent = 'CHAOS BOT';
+  document.querySelector('#hp-p2 .name').textContent = 'CHAOS ROBOT PIG';
   const seed = (Math.random() * 0x7fffffff) | 0;
-  game = new Game(canvas, 0, seed, () => {});
-  game.cpu = { active: true, planned: null };
+  game = new Game(canvas, 0, seed, () => {}, { mode: 'solo' });
+  game.cpu = { active: true, planned: null, host: true };
   game.setToast('YOUR TURN', 1400);
   requestAnimationFrame(loop);
 }
 
 function cpuMaybeAct(g) {
-  if (!g?.cpu?.active || g.turn !== 1 || g.phase !== 'aim') {
+  if (!g?.cpu?.active || !g?.cpu?.host || g.turn !== 1 || g.phase !== 'aim') {
     if (g?.cpu) g.cpu.planned = null;
     return;
   }
@@ -1200,10 +1600,7 @@ function cpuMaybeAct(g) {
   }
 
   if (performance.now() >= g.cpu.planned.atMs) {
-    const savedSide = g.side;
-    g.side = 1;
-    g.fire(g.cpu.planned.power, g.cpu.planned.angle);
-    g.side = savedSide;
+    g.fireShot(1, g.cpu.planned.power, g.cpu.planned.angle, 1);
     g.cpu.planned = null;
   }
 }
@@ -1221,18 +1618,22 @@ function loop(now) {
 function updateHUD() {
   document.getElementById('pigs-p1').textContent = '🐷'.repeat(game.pigsAlive[0]) || '—';
   document.getElementById('pigs-p2').textContent = '🐷'.repeat(game.pigsAlive[1]) || '—';
+  document.getElementById('score-p1').textContent = `ROUNDS ${game.roundWins[0]}`;
+  document.getElementById('score-p2').textContent = `ROUNDS ${game.roundWins[1]}`;
   document.getElementById('hp-p1').classList.toggle('turn', game.turn === 0);
   document.getElementById('hp-p2').classList.toggle('turn', game.turn === 1);
 
   const banner = document.getElementById('turn-banner');
-  const otherLabel = game.cpu?.active ? "CHAOS BOT'S SHOT" : "SISTER'S SHOT";
-  if (game.phase === 'over') banner.textContent = 'BATTLE OVER';
+  const otherLabel = game.turn === 1
+    ? "CHAOS ROBOT PIG'S SHOT"
+    : `${game.avatarPreset(game.controllerAvatarKey(game.activeController)).name}'S SHOT`;
+  if (game.phase === 'roundOver') banner.textContent = `ROUND ${game.round} OVER`;
   else if (game.myTurn()) banner.textContent = 'FLING';
   else if (game.phase === 'flying') banner.textContent = 'INCOMING';
   else banner.textContent = otherLabel;
 
   if (game.drag?.pulled && game.myTurn()) {
-    const s = game.slingshotPos(game.side);
+    const s = game.slingshotPos(game.shotSideForLocal());
     const pull = Math.hypot(s.x - game.drag.x, s.y - game.drag.y);
     banner.textContent = `POWER ${Math.round((pull / MAX_PULL) * 100)}%`;
   }
