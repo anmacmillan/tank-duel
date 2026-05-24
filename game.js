@@ -1032,6 +1032,8 @@ class Game {
     for (const b of this.blocks) this.drawBlock(b);
     for (const t of this.tnts) this.drawTnt(t);
     for (const p of this.pigs) if (!p.dead) this.drawPig(p);
+    this.drawReadyBird(0);
+    this.drawReadyBird(1);
     if (this.bird) {
       this.drawBirdAt(
         this.bird.position.x,
@@ -1125,8 +1127,11 @@ class Game {
     ctx.moveTo(cx, top + this.s(14));
     ctx.lineTo(cx + fork, top - this.s(6));
     ctx.stroke();
+  }
 
+  drawReadyBird(side) {
     if (!this.bird && this.turn === side && this.phase === 'aim' && !(this.myTurn() && this.drag?.pulled)) {
+      const s = this.slingshotPos(side);
       this.drawBirdAt(s.x, s.y - 12, this.idleAvatarKey(side), 0);
     }
   }
