@@ -4,24 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>Angry Manon · Angry Margot</title>
+  <title>Angry Blobs</title>
   <link rel="icon" href="data:,">
   <style>
     :root {
-      --sky-top: #2a1a4a;
-      --sky-bot: #ff8fb1;
-      --ground: #4d2a5a;
-      --grass: #b65fb6;
-      --p1: #ff5bdc;
-      --p2: #5be5ff;
-      --ink: #f8f0ff;
-      --panel: rgba(20, 10, 35, 0.78);
+      --sky-top: #2d7ad7;
+      --sky-bot: #ffb45b;
+      --ground: #5f9b2e;
+      --grass: #90cf4f;
+      --p1: #ff6c61;
+      --p2: #59d9ff;
+      --ink: #fff7eb;
+      --panel: rgba(36, 34, 20, 0.68);
+      --panel-border: rgba(255, 245, 203, 0.28);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html, body {
       width: 100%; height: 100%; overflow: hidden;
       background: var(--sky-top); color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      font-family: "Avenir Next Condensed", "Trebuchet MS", "Arial Rounded MT Bold", sans-serif;
       user-select: none; -webkit-user-select: none;
       touch-action: none;
     }
@@ -30,30 +31,34 @@
       position: fixed; inset: 0;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 18px; padding: 24px;
-      background: linear-gradient(180deg, var(--sky-top) 0%, #5a2a6a 100%);
+      background:
+        radial-gradient(circle at top, rgba(255, 250, 221, 0.18), transparent 38%),
+        linear-gradient(180deg, #58b5ff 0%, #9ae6ff 42%, #ffc86f 100%);
       z-index: 50;
     }
     .overlay.hidden { display: none; }
     h1 {
       font-size: clamp(2rem, 7vw, 3.5rem);
       letter-spacing: 0.06em;
-      text-shadow: 0 2px 0 #000, 0 0 22px rgba(255, 91, 220, 0.6);
+      text-transform: uppercase;
+      text-shadow: 0 3px 0 rgba(84, 44, 0, 0.75), 0 0 24px rgba(255, 219, 120, 0.45);
     }
     h1 .pink { color: var(--p1); }
     h1 .cyan { color: var(--p2); }
     .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
     button, input {
       font: inherit; font-size: 1.1rem;
-      background: var(--panel); color: var(--ink);
-      border: 2px solid var(--p1);
-      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(95, 76, 33, 0.78), rgba(55, 44, 18, 0.82)); color: var(--ink);
+      border: 2px solid rgba(255, 247, 220, 0.42);
+      border-radius: 18px;
       padding: 14px 22px;
       min-width: 140px; min-height: 56px;
       cursor: pointer;
       touch-action: manipulation;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 8px 20px rgba(0,0,0,0.22);
     }
-    button.cyan { border-color: var(--p2); }
-    button:active { transform: scale(0.97); background: rgba(255, 91, 220, 0.3); }
+    button.cyan { border-color: rgba(112, 232, 255, 0.7); }
+    button:active { transform: scale(0.97); filter: brightness(1.06); }
     input {
       letter-spacing: 0.3em; text-align: center; text-transform: uppercase;
       min-width: 180px;
@@ -62,11 +67,11 @@
       font-size: clamp(2rem, 9vw, 4rem);
       letter-spacing: 0.4em;
       padding: 14px 22px;
-      border: 3px dashed var(--p2);
+      border: 3px dashed rgba(255,255,255,0.72);
       border-radius: 18px;
       background: var(--panel);
     }
-    .hint { opacity: 0.78; font-size: 0.95rem; max-width: 30ch; text-align: center; }
+    .hint { opacity: 0.9; font-size: 1rem; max-width: 32ch; text-align: center; text-shadow: 0 1px 0 rgba(70,35,0,0.35); }
     #hud {
       position: fixed; top: 0; left: 0; right: 0;
       padding: 12px 16px;
@@ -75,11 +80,12 @@
       z-index: 10;
     }
     .hp {
-      background: var(--panel);
-      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(55, 44, 18, 0.84), rgba(37, 29, 11, 0.84));
+      border-radius: 14px;
       padding: 8px 14px;
       min-width: 130px;
-      border: 2px solid transparent;
+      border: 2px solid var(--panel-border);
+      backdrop-filter: blur(6px);
     }
     .hp.p1 { border-color: var(--p1); }
     .hp.p2 { border-color: var(--p2); }
@@ -87,12 +93,13 @@
     .hp .name { font-weight: 700; font-size: 0.9rem; letter-spacing: 0.1em; }
     .hp .pigs { font-size: 1.4rem; line-height: 1; margin-top: 4px; letter-spacing: 0.05em; }
     #turn-banner {
-      font-weight: 700;
+      font-weight: 800;
       font-size: 1rem;
       text-align: center;
-      background: var(--panel);
+      background: linear-gradient(180deg, rgba(55, 44, 18, 0.84), rgba(37, 29, 11, 0.84));
       padding: 8px 14px;
-      border-radius: 10px;
+      border-radius: 12px;
+      border: 2px solid var(--panel-border);
     }
     #fire-btn {
       position: fixed; right: 22px; bottom: 26px;
@@ -131,7 +138,7 @@
     .toast {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
       padding: 24px 32px; border-radius: 18px;
-      background: var(--panel); border: 3px solid var(--p1);
+      background: linear-gradient(180deg, rgba(54, 42, 17, 0.92), rgba(31, 25, 11, 0.92)); border: 3px solid rgba(255, 228, 111, 0.7);
       font-size: 1.4rem; font-weight: 700; text-align: center;
       z-index: 40;
       opacity: 0; pointer-events: none; transition: opacity 240ms;
@@ -139,7 +146,8 @@
     .toast.show { opacity: 1; }
     .footer-hint {
       position: fixed; bottom: 6px; left: 50%; transform: translateX(-50%);
-      font-size: 0.72rem; opacity: 0.5; z-index: 10;
+      font-size: 0.78rem; opacity: 0.72; z-index: 10;
+      text-shadow: 0 1px 0 rgba(52, 32, 0, 0.35);
     }
   </style>
 </head>
@@ -162,32 +170,32 @@
   <div id="power-meter" class="hidden" style="display:none"><div style="height:50%"></div><span>POWER</span></div>
   <button id="fire-btn" class="hidden" style="display:none">FIRE</button>
   <div id="toast" class="toast"></div>
-  <div class="footer-hint">pull the slingshot back, let go to fling · pop the other sister's pigs</div>
+  <div class="footer-hint">pull back, let go, and cause maximum blob chaos</div>
 
   <div id="lobby" class="overlay">
-    <h1><span class="pink">Angry Manon</span> <span class="cyan">Angry Margot</span></h1>
-    <p class="hint">Two iPads. Take turns flinging your slingshot at each other. ♥</p>
+    <h1><span class="pink">Angry</span> <span class="cyan">Blobs</span></h1>
+    <p class="hint">Two iPads. Pull, fling, smash towers, trigger TNT, and make a glorious mess.</p>
     <div class="row">
       <button id="host-btn">HOST GAME</button>
       <button id="join-btn" class="cyan">JOIN GAME</button>
     </div>
     <div class="row">
-      <button id="cpu-btn">PLAY vs CPU</button>
+      <button id="cpu-btn">PLAY vs CHAOS BOT</button>
     </div>
     <p id="lobby-status" class="hint"></p>
   </div>
 
   <div id="host-wait" class="overlay hidden">
     <h1>Room code</h1>
-    <p class="hint">Tell your sister to tap JOIN and type this code:</p>
+    <p class="hint">Tell the other iPad to tap JOIN and type this code:</p>
     <div id="room-code" class="code">----</div>
-    <p class="hint" id="host-status">Waiting for her to join…</p>
+    <p class="hint" id="host-status">Waiting for them to join...</p>
     <button id="host-back">Back</button>
   </div>
 
   <div id="join-form" class="overlay hidden">
     <h1>Join a game</h1>
-    <p class="hint">Type the 4-letter code your sister tells you:</p>
+    <p class="hint">Type the 4-letter room code:</p>
     <input id="join-code" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE">
     <div class="row">
       <button id="join-go" class="cyan">JOIN</button>
