@@ -306,6 +306,7 @@ class Game {
     this.points = [0, 0];
     this.currentShot = null;
     this.lastShotToast = '';
+    this.aimStartedAt = performance.now();
     this.phase = 'aim';
     this.drag = null;
     this.bird = null;
@@ -329,6 +330,7 @@ class Game {
     this.bird = null;
     this.currentShot = null;
     this.roundResetAt = 0;
+    this.aimStartedAt = performance.now();
     this.flyFrames = 0;
     this.settledFrames = 0;
     this.pigId = 0;
@@ -560,11 +562,13 @@ class Game {
     return side === 0 ? SLING_A : SLING_B;
   }
 
-  beginShotScore(side, shooterId, avatarKey) {
+  beginShotScore(side, shooterId, avatarKey, power) {
     this.currentShot = {
       side,
       shooterId,
       avatarKey,
+      power,
+      aimMs: Math.max(0, performance.now() - this.aimStartedAt),
       points: 0,
       pigs: 0,
       blocks: 0,
@@ -580,32 +584,41 @@ class Game {
     if (kind === 'tnt') this.currentShot.tnts += 1;
   }
 
+  describeShotPerformance(shot, total) {
+    if (shot.pigs >= 2) return 'CHAOS MERCHANT';
+    if (shot.pigs >= 1 && shot.tnts >= 1) return 'MAYHEM MAKER';
+    if (shot.pigs >= 1 && shot.aimMs >= 6500) return 'DEEP THINKER';
+    if (shot.pigs >= 1 && shot.power <= 0.58) return 'SHARP SHOOTER';
+    if (shot.blocks >= 5) return 'WRECKING BALL';
+    if (shot.tnts >= 2) return 'CHAIN REACTOR';
+    if (total >= 180) return 'BATTLE ARTIST';
+    if (shot.aimMs >= 9000) return 'PATIENT PLOTTER';
+    if (shot.power >= 0.9 && total >= 70) return 'BIG SWINGER';
+    if (total >= 70) return 'NICE HIT';
+    if (total > 0) return 'RANGE FINDER';
+    return '';
+  }
+
   settleShotScore() {
     const shot = this.currentShot;
     this.currentShot = null;
     if (!shot) return '';
 
     let bonus = 0;
-    let flair = '';
     if (shot.pigs >= 2) {
       bonus += 90 * (shot.pigs - 1);
-      flair = 'DOUBLE OINK';
     } else if (shot.pigs >= 1 && shot.tnts >= 1) {
       bonus += 70;
-      flair = 'BOOM OINK';
     } else if (shot.tnts >= 2) {
       bonus += 50 * (shot.tnts - 1);
-      flair = 'CHAIN BOOM';
     } else if (shot.blocks >= 4) {
       bonus += 45;
-      flair = 'WRECKING BALL';
-    } else if (shot.points >= 120) {
-      flair = 'NICE HIT';
     }
 
     const total = shot.points + bonus;
     if (total <= 0) return '';
     this.points[shot.side] += total;
+    const flair = this.describeShotPerformance(shot, total);
     return flair ? `${flair} • +${total}` : `+${total} PTS`;
   }
 
@@ -716,7 +729,7 @@ class Game {
     M.Body.setVelocity(bird, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed });
     M.World.add(this.world, bird);
     this.bird = bird;
-    this.beginShotScore(side, shooterId, avatarKey);
+    this.beginShotScore(side, shooterId, avatarKey, power);
     this.freezeWorld = false;
     this.phase = 'flying';
     this.flyFrames = 0;
@@ -973,6 +986,7 @@ class Game {
       this.turn = 1 - this.turn;
     }
     this.phase = 'aim';
+    this.aimStartedAt = performance.now();
     const turnText = this.activeTurnLabel();
     const text = this.lastShotToast ? `${this.lastShotToast} • ${turnText}` : turnText;
     this.setToast(text, this.lastShotToast ? 1700 : 1300);
