@@ -303,6 +303,9 @@ class Game {
     this.activeController = 0;
     this.round = 1;
     this.roundWins = [0, 0];
+    this.points = [0, 0];
+    this.currentShot = null;
+    this.lastShotToast = '';
     this.phase = 'aim';
     this.drag = null;
     this.bird = null;
@@ -324,6 +327,7 @@ class Game {
     this.phase = 'aim';
     this.drag = null;
     this.bird = null;
+    this.currentShot = null;
     this.roundResetAt = 0;
     this.flyFrames = 0;
     this.settledFrames = 0;
@@ -556,6 +560,55 @@ class Game {
     return side === 0 ? SLING_A : SLING_B;
   }
 
+  beginShotScore(side, shooterId, avatarKey) {
+    this.currentShot = {
+      side,
+      shooterId,
+      avatarKey,
+      points: 0,
+      pigs: 0,
+      blocks: 0,
+      tnts: 0,
+    };
+  }
+
+  addShotPoints(kind, amount) {
+    if (!this.currentShot || amount <= 0) return;
+    this.currentShot.points += amount;
+    if (kind === 'pig') this.currentShot.pigs += 1;
+    if (kind === 'block') this.currentShot.blocks += 1;
+    if (kind === 'tnt') this.currentShot.tnts += 1;
+  }
+
+  settleShotScore() {
+    const shot = this.currentShot;
+    this.currentShot = null;
+    if (!shot) return '';
+
+    let bonus = 0;
+    let flair = '';
+    if (shot.pigs >= 2) {
+      bonus += 90 * (shot.pigs - 1);
+      flair = 'DOUBLE OINK';
+    } else if (shot.pigs >= 1 && shot.tnts >= 1) {
+      bonus += 70;
+      flair = 'BOOM OINK';
+    } else if (shot.tnts >= 2) {
+      bonus += 50 * (shot.tnts - 1);
+      flair = 'CHAIN BOOM';
+    } else if (shot.blocks >= 4) {
+      bonus += 45;
+      flair = 'WRECKING BALL';
+    } else if (shot.points >= 120) {
+      flair = 'NICE HIT';
+    }
+
+    const total = shot.points + bonus;
+    if (total <= 0) return '';
+    this.points[shot.side] += total;
+    return flair ? `${flair} • +${total}` : `+${total} PTS`;
+  }
+
   setToast(text, ms = 2200) {
     this.toast = text;
     this.toastUntil = performance.now() + ms;
@@ -663,6 +716,7 @@ class Game {
     M.Body.setVelocity(bird, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed });
     M.World.add(this.world, bird);
     this.bird = bird;
+    this.beginShotScore(side, shooterId, avatarKey);
     this.freezeWorld = false;
     this.phase = 'flying';
     this.flyFrames = 0;
@@ -760,6 +814,8 @@ class Game {
     if (!block || !this.blocks.includes(block)) return;
     this.blocks = this.blocks.filter((b) => b !== block);
     M.World.remove(this.world, block);
+    const blockPoints = block.material === 'stone' ? 22 : block.material === 'glass' ? 16 : 12;
+    this.addShotPoints('block', blockPoints);
     this.burst(block.position.x, block.position.y, block.dust, 18, 1.5, 6.5, 6, 0.18);
     this.shakeScreen(block.material === 'stone' ? 7 : 5);
     if (block.material === 'glass') audio.impact(12);
@@ -777,6 +833,7 @@ class Game {
     tnt.armed = false;
     this.tnts = this.tnts.filter((x) => x !== tnt);
     M.World.remove(this.world, tnt);
+    this.addShotPoints('tnt', 55);
 
     const { x, y } = tnt.position;
     this.burst(x, y, '#ffcf5b', 38, 2.5, 10, 9, 0.14);
@@ -805,6 +862,7 @@ class Game {
     pig.dead = true;
     this.pigsAlive[pig.ownerSide] = Math.max(0, this.pigsAlive[pig.ownerSide] - 1);
     M.World.remove(this.world, pig);
+    this.addShotPoints('pig', 140);
     this.burst(pig.position.x, pig.position.y, '#93e357', 24, 1.5, 7, 7, 0.18);
     this.burst(pig.position.x, pig.position.y, '#ffffff', 8, 1, 4.5, 4, 0.08);
     this.shakeScreen(10);
@@ -875,6 +933,7 @@ class Game {
   endShot() {
     const shotOwnerSide = this.bird?.ownerSide ?? this.turn;
     const shotShooterId = this.bird?.shooterId ?? shotOwnerSide;
+    this.lastShotToast = this.settleShotScore();
     if (this.bird) {
       M.World.remove(this.world, this.bird);
       this.bird = null;
@@ -900,6 +959,7 @@ class Game {
       const winnerLabel = this.localWon(winner) ? 'YOU' : this.playerName(winner);
       const winnerVerb = winnerLabel === 'YOU' || winnerLabel.includes('+') ? 'TAKE' : 'TAKES';
       this.setToast(`${winnerLabel} ${winnerVerb} ROUND ${this.round}`, ROUND_RESET_MS - 250);
+      this.lastShotToast = '';
       return;
     }
     if (this.isCoop()) {
@@ -913,7 +973,10 @@ class Game {
       this.turn = 1 - this.turn;
     }
     this.phase = 'aim';
-    this.setToast(this.activeTurnLabel(), 1300);
+    const turnText = this.activeTurnLabel();
+    const text = this.lastShotToast ? `${this.lastShotToast} • ${turnText}` : turnText;
+    this.setToast(text, this.lastShotToast ? 1700 : 1300);
+    this.lastShotToast = '';
   }
 
   startNextRound() {
@@ -1619,8 +1682,8 @@ function loop(now) {
 function updateHUD() {
   document.getElementById('pigs-p1').textContent = '🐷'.repeat(game.pigsAlive[0]) || '—';
   document.getElementById('pigs-p2').textContent = '🐷'.repeat(game.pigsAlive[1]) || '—';
-  document.getElementById('score-p1').textContent = `ROUNDS ${game.roundWins[0]}`;
-  document.getElementById('score-p2').textContent = `ROUNDS ${game.roundWins[1]}`;
+  document.getElementById('score-p1').textContent = `PTS ${game.points[0]} • ROUNDS ${game.roundWins[0]}`;
+  document.getElementById('score-p2').textContent = `PTS ${game.points[1]} • ROUNDS ${game.roundWins[1]}`;
   document.getElementById('hp-p1').classList.toggle('turn', game.turn === 0);
   document.getElementById('hp-p2').classList.toggle('turn', game.turn === 1);
 
