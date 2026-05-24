@@ -207,24 +207,28 @@ class Game {
     this.phase = 'settle';
   }
 
-  // ----------------------------- input -------------------------------------
+  // ----------------------------- input (slingshot) -------------------------
   onPointerDown(wx, wy) {
     if (!this.myTurn()) return;
-    this.drag = { x: wx, y: wy };
+    this.drag = { startX: wx, startY: wy, x: wx, y: wy, pulled: false };
   }
   onPointerMove(wx, wy) {
     if (!this.drag || !this.myTurn()) return;
-    const tank = this.tanks[this.side];
-    const dx = wx - tank.x;
-    const dy = wy - (tank.y - TANK_H + 4);
-    const angle = Math.atan2(dy, dx);
-    // Power from drag distance — clamped
-    const dragDist = Math.hypot(wx - this.drag.x, wy - this.drag.y);
-    const power = Math.max(0.15, Math.min(1, dragDist / 280));
-    this.aim.angle = angle;
-    this.aim.power = power;
+    this.drag.x = wx;
+    this.drag.y = wy;
+    // Slingshot: aim is opposite of drag direction. Power scales with pull distance.
+    const dx = this.drag.startX - wx;
+    const dy = this.drag.startY - wy;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 8) return;
+    this.drag.pulled = true;
+    this.aim.angle = Math.atan2(dy, dx);
+    this.aim.power = Math.max(0.18, Math.min(1, dist / 260));
   }
   onPointerUp() {
+    if (this.drag && this.drag.pulled && this.myTurn()) {
+      this.fire();
+    }
     this.drag = null;
   }
 
@@ -285,8 +289,11 @@ class Game {
     // Tanks
     this.tanks.forEach((t, i) => this.drawTank(t, i));
 
-    // Aim preview
-    if (this.myTurn()) this.drawAimPreview();
+    // Aim preview — only while pulling the slingshot
+    if (this.myTurn() && this.drag?.pulled) {
+      this.drawAimPreview();
+      this.drawSlingshotBand();
+    }
 
     // Projectile + trail
     if (this.projectile) {
@@ -343,6 +350,27 @@ class Game {
     ctx.moveTo(bx, by);
     ctx.lineTo(bx + Math.cos(barrelAngle) * len, by + Math.sin(barrelAngle) * len);
     ctx.stroke();
+  }
+
+  drawSlingshotBand() {
+    if (!this.drag) return;
+    const ctx = this.ctx;
+    const t = this.tanks[this.side];
+    const cx0 = this.worldToCanvasX(t.x);
+    const cy0 = this.worldToCanvasY(t.y - TANK_H + 4);
+    const cx1 = this.worldToCanvasX(this.drag.x);
+    const cy1 = this.worldToCanvasY(this.drag.y);
+    ctx.strokeStyle = 'rgba(255, 91, 220, 0.85)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx0, cy0);
+    ctx.lineTo(cx1, cy1);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd45b';
+    ctx.beginPath();
+    ctx.arc(cx1, cy1, 8, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   drawAimPreview() {
