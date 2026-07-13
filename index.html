@@ -2,11 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#7ec8f7">
 <title>Tank Duel 💥</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
-  html, body { width: 100%; height: 100%; overflow: hidden; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #1a1a2e; }
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #1a1a2e; touch-action: manipulation; }
   #game { display: block; position: absolute; top: 0; left: 0; touch-action: none; }
 
   /* ---------- Top bar ---------- */
@@ -310,6 +313,7 @@ const banner = $('banner');
 let AC = null;
 function audio() {
   if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (AC && AC.state === 'suspended') AC.resume();  // iOS starts audio contexts suspended
   return AC;
 }
 function sfxFire() {
@@ -1104,6 +1108,21 @@ function draw() {
 
   ctx.restore();
 }
+
+// handle rotation / window resize: rebuild the battlefield at the new size,
+// keeping tanks at proportional positions with their health intact
+window.addEventListener('resize', () => {
+  const oldW = W;
+  if (window.innerWidth === oldW && window.innerHeight === H) return;
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  genTerrain();
+  genClouds();
+  tanks.forEach(t => {
+    t.x = Math.round(t.x / oldW * W);
+    t.y = groundAt(t.x);
+  });
+});
 
 // ---------- Main loop ----------
 function loop() {
