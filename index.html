@@ -153,7 +153,11 @@
   #winTitle { font-size: 46px; }
   .hidden { display: none !important; }
   .mini-row { flex-wrap: wrap; }
-  #startBtn { position: sticky; bottom: 0; }
+  #startRow { position: sticky; bottom: 0; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .bigbtn.alt { background: linear-gradient(180deg,#7b5cff,#5a3fd6); box-shadow: 0 6px 18px rgba(90,63,214,.5); }
+  .bigbtn:disabled { opacity: .55; transform: none; cursor: default; }
+  .name-col.locked { opacity: .45; pointer-events: none; }
+  #controls.waiting { opacity: .35; pointer-events: none; }
   .mini-card { min-width: 17%; }
 
   /* ---------- Halloween edition ---------- */
@@ -234,7 +238,11 @@
         <div class="swatch-row" id="hair2"></div>
       </div>
     </div>
-    <button class="bigbtn" id="startBtn">Start Battle!</button>
+    <div id="startRow">
+      <button class="bigbtn" id="startBtn">Start Battle!</button>
+      <button class="bigbtn alt" id="onlineBtn">📱 Play on two iPads</button>
+    </div>
+    <p id="onlineNote" class="sub hidden" style="margin:12px 0 0"></p>
   </div>
 </div>
 
@@ -269,15 +277,33 @@ if (HALLOWEEN) {
   document.querySelector('meta[name=theme-color]').content = '#1a0f2b';
 }
 
-// draw at the screen's real pixel density so the iPad picture is sharp
-let W, H, DPR = 1;
+// The battlefield is always W x H, scaled to fit the screen, so two iPads of
+// different sizes play on exactly the same hills. Drawn at the screen's real
+// pixel density so the picture is sharp.
+const W = 1180, H = 820;
+let SW = 0, SH = 0, DPR = 1, S = 1, OX = 0, OY = 0;
 function sizeCanvas() {
-  W = window.innerWidth; H = window.innerHeight;
+  SW = window.innerWidth; SH = window.innerHeight;
   DPR = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  canvas.width = Math.round(SW * DPR); canvas.height = Math.round(SH * DPR);
+  canvas.style.width = SW + 'px'; canvas.style.height = SH + 'px';
+  S = Math.min(SW / W, SH / H);
+  OX = (SW - W * S) / 2;
+  OY = SH - H * S;          // ground sits on the bottom of the screen
 }
 sizeCanvas();
+const toWorld = e => ({ x: (e.clientX - OX) / S, y: (e.clientY - OY) / S });
+
+// Seeded randomness: the same seed builds the same battle on both iPads.
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let grand = Math.random, battleSeed = 1, shotIdx = 0;
 
 const GRAVITY = 0.22;
 
@@ -407,9 +433,9 @@ function sfxWin() {
 function genTerrain() {
   terrain = new Float32Array(W);
   const base = H * 0.68;
-  const p1 = Math.random() * 9, p2 = Math.random() * 9, p3 = Math.random() * 9;
-  const a1 = H * (0.08 + Math.random() * 0.08);
-  const a2 = H * (0.04 + Math.random() * 0.05);
+  const p1 = grand() * 9, p2 = grand() * 9, p3 = grand() * 9;
+  const a1 = H * (0.08 + grand() * 0.08);
+  const a2 = H * (0.04 + grand() * 0.05);
   const a3 = H * 0.02;
   for (let x = 0; x < W; x++) {
     let y = base
@@ -446,11 +472,11 @@ function genSpooky() {
   const kinds = ['grave', 'pumpkin', 'grave', 'pumpkin', 'cross', 'pumpkin', 'tree', 'grave', 'tree'];
   let tries = 0;
   while (decor.length < kinds.length && tries++ < 400) {
-    const x = W * (0.05 + Math.random() * 0.9);
+    const x = W * (0.05 + grand() * 0.9);
     const f = x / W;
     if ((f > 0.05 && f < 0.24) || (f > 0.76 && f < 0.95)) continue;
     if (decor.some(d => Math.abs(d.x - x) < 55)) continue;
-    decor.push({ x, kind: kinds[decor.length], seed: Math.random() * 1000, tilt: (Math.random() - 0.5) * 0.25 });
+    decor.push({ x, kind: kinds[decor.length], seed: grand() * 1000, tilt: (grand() - 0.5) * 0.25 });
   }
 }
 
@@ -468,39 +494,52 @@ function genClouds() {
 }
 
 // ---------- Game flow ----------
-function newBattle(loserStarts) {
-  sizeCanvas();
+function newBattle(loserStarts, seed) {
+  battleSeed = (typeof seed === 'number') ? seed : Math.floor(Math.random() * 2147483647);
+  grand = mulberry32(battleSeed);
+  shotIdx = 0;
+  pendingShot = null; remoteAfter = null;
   genTerrain();
   genClouds();
   particles = []; ghost = null; confetti = []; trail = []; projectile = null; shake = 0;
 
-  tanks[0].x = Math.round(W * (0.10 + Math.random() * 0.08));
-  tanks[1].x = Math.round(W * (0.82 + Math.random() * 0.08));
+  tanks[0].x = Math.round(W * (0.10 + grand() * 0.08));
+  tanks[1].x = Math.round(W * (0.82 + grand() * 0.08));
   tanks.forEach(t => { t.y = groundAt(t.x); t.hp = t.type.hp; t.maxHp = t.type.hp; t.power = 60; });
   tanks[0].angle = 60; tanks[1].angle = 120;
 
-  $('name1').textContent = `${tanks[0].type.emoji} ${tanks[0].name}`;
-  $('name2').textContent = `${tanks[1].name} ${tanks[1].type.emoji}`;
+  const you = i => (ONLINE && ONLINE.me === i ? ' (you)' : '');
+  $('name1').textContent = `${tanks[0].type.emoji} ${tanks[0].name}${you(0)}`;
+  $('name2').textContent = `${tanks[1].name}${you(1)} ${tanks[1].type.emoji}`;
   document.querySelector('#hp1 .hpfill').style.background =
     `linear-gradient(90deg, ${tanks[0].dark}, ${tanks[0].color})`;
   document.querySelector('#hp2 .hpfill').style.background =
     `linear-gradient(90deg, ${tanks[1].dark}, ${tanks[1].color})`;
   updateHpBars();
 
-  current = (typeof loserStarts === 'number') ? loserStarts : (Math.random() < 0.5 ? 0 : 1);
+  current = (typeof loserStarts === 'number') ? loserStarts : (grand() < 0.5 ? 0 : 1);
   startTurn();
 }
 
+const myTurn = () => !ONLINE || current === ONLINE.me;
 function startTurn() {
-  wind = (Math.random() * 2 - 1) * 0.045;
+  // wind and the ghost come from the battle seed and the shot number, so both iPads agree
+  const r = mulberry32((battleSeed + shotIdx * 7919) >>> 0);
+  wind = (r() * 2 - 1) * 0.045;
   state = 'aim';
-  if (HALLOWEEN && !ghost && Math.random() < 0.6) {
-    const fromLeft = Math.random() < 0.5;
-    ghost = { x: fromLeft ? -40 : W + 40, y: H * (0.16 + Math.random() * 0.2), vx: (fromLeft ? 1 : -1) * (0.5 + Math.random() * 0.4), ph: 0 };
+  ghost = null;
+  if (HALLOWEEN && r() < 0.6) {
+    const fromLeft = r() < 0.5;
+    ghost = { x: fromLeft ? -40 : W + 40, y: H * (0.16 + r() * 0.2), vx: (fromLeft ? 1 : -1) * (0.5 + r() * 0.4), ph: 0 };
   }
   updateWindUI();
   updateAimUI();
-  showBanner(`${tanks[current].name}'s turn!`, tanks[current].color);
+  $('controls').classList.toggle('waiting', !myTurn());
+  $('hint').textContent = myTurn()
+    ? 'Drag on screen (or ⬅️ ➡️) to aim  ·  hold FIRE or SPACE to charge, release to shoot!'
+    : `Waiting for ${tanks[current].name} to fire…`;
+  if (ONLINE) showBanner(myTurn() ? 'Your turn!' : `${tanks[current].name}'s turn`, tanks[current].color);
+  else showBanner(`${tanks[current].name}'s turn!`, tanks[current].color);
 }
 
 function showBanner(text, color) {
@@ -513,7 +552,15 @@ function showBanner(text, color) {
 }
 
 function fire() {
-  if (state !== 'aim') return;
+  if (state !== 'aim' || !myTurn()) return;
+  if (ONLINE) {
+    const t = tanks[current];
+    pendingShot = { i: shotIdx, by: current, a: t.angle, pw: t.power,
+      ghost: ghost ? { x: ghost.x, y: ghost.y, vx: ghost.vx, ph: ghost.ph } : null, before: snap() };
+  }
+  launch();
+}
+function launch() {
   const t = tanks[current];
   const ty = t.type;
   const rad = t.angle * Math.PI / 180;
@@ -646,7 +693,7 @@ const keys = {};
 let charging = false, chargeDir = 1;
 
 function startCharge() {
-  if (state !== 'aim' || charging) return;
+  if (state !== 'aim' || charging || !myTurn()) return;
   charging = true;
   chargeDir = 1;
   tanks[current].power = 15;
@@ -689,10 +736,11 @@ fireBtn.addEventListener('pointerup', () => releaseCharge(false));
 
 // touch/drag anywhere on the battlefield to aim
 function aimAtPointer(e) {
-  if (state !== 'aim') return;
+  if (state !== 'aim' || !myTurn()) return;
   const t = tanks[current];
-  const dx = e.clientX - t.x;
-  const dy = (t.y - t.type.h) - e.clientY;
+  const w = toWorld(e);
+  const dx = w.x - t.x;
+  const dy = (t.y - t.type.h) - w.y;
   let a = Math.atan2(dy, dx) * 180 / Math.PI;
   if (a < 0) a = dx < 0 ? 175 : 5;   // pointing below the horizon snaps flat
   t.angle = Math.max(5, Math.min(175, a));
@@ -702,7 +750,7 @@ canvas.addEventListener('pointerdown', e => { e.preventDefault(); aimAtPointer(e
 canvas.addEventListener('pointermove', e => { if (e.buttons) aimAtPointer(e); });
 
 function adjustAngle(d) {
-  if (state !== 'aim') return;
+  if (state !== 'aim' || !myTurn()) return;
   const t = tanks[current];
   t.angle = Math.max(5, Math.min(175, t.angle + d));
   updateAimUI();
@@ -785,6 +833,7 @@ function renderPickers() {
 renderPickers();
 
 $('startBtn').addEventListener('click', () => {
+  if (ONLINE) return;   // two-iPad games use the Ready handler further down
   tanks[0].name = $('in1').value.trim() || 'Player 1';
   tanks[1].name = $('in2').value.trim() || 'Player 2';
   for (let i = 0; i < 2; i++) {
@@ -799,10 +848,17 @@ $('startBtn').addEventListener('click', () => {
   newBattle();
 });
 $('againBtn').addEventListener('click', () => {
+  const loser = parseInt($('winOverlay').dataset.loser, 10);
+  if (ONLINE) {   // start the next round on both iPads
+    dbPatch({ round: (DOC.round || 1) + 1, seed: Math.floor(Math.random() * 2147483647), first: loser, shot: null, before: null, after: null, t: Date.now() });
+    $('againBtn').disabled = true;
+    return;
+  }
   $('winOverlay').style.display = 'none';
-  newBattle(parseInt($('winOverlay').dataset.loser, 10));
+  newBattle(loser);
 });
 $('setupBtn').addEventListener('click', () => {
+  if (ONLINE) return;
   $('winOverlay').style.display = 'none';
   $('startOverlay').style.display = 'flex';
   renderPickers();
@@ -899,12 +955,7 @@ function update() {
   // settle → next turn
   if (state === 'settle') {
     settleTimer--;
-    if (settleTimer <= 0) {
-      if (!checkWin()) {
-        current = 1 - current;
-        startTurn();
-      }
-    }
+    if (settleTimer <= 0) endOfShot();
   }
 
   // particles
@@ -1252,7 +1303,9 @@ function drawAimGuide() {
 }
 
 function draw() {
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.setTransform(DPR * S, 0, 0, DPR * S, DPR * OX, DPR * OY);
+  // the part of the world the screen can see (wider or taller than W x H)
+  const vx0 = -OX / S - 2, vx1 = (SW - OX) / S + 2, vy0 = -OY / S - 2, vy1 = (SH - OY) / S + 2;
   ctx.save();
   if (shake > 0.3) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 
@@ -1265,7 +1318,7 @@ function draw() {
     sky.addColorStop(0, '#7ec8f7'); sky.addColorStop(0.6, '#bfe3fb'); sky.addColorStop(1, '#ffe9c9');
   }
   ctx.fillStyle = sky;
-  ctx.fillRect(-20, -20, W + 40, H + 40);
+  ctx.fillRect(vx0 - 20, vy0 - 20, vx1 - vx0 + 40, vy1 - vy0 + 40);
 
   if (HALLOWEEN) {
     // twinkling stars and a big full moon
@@ -1304,10 +1357,12 @@ function draw() {
   grd.addColorStop(1, HALLOWEEN ? '#150d1a' : '#5c3a24');
   ctx.fillStyle = grd;
   ctx.beginPath();
-  ctx.moveTo(0, H);
+  ctx.moveTo(vx0, vy1 + 20);
+  ctx.lineTo(vx0, terrain[0]);
   for (let x = 0; x < W; x += 2) ctx.lineTo(x, terrain[x]);
-  ctx.lineTo(W, terrain[W - 1]);
-  ctx.lineTo(W, H);
+  ctx.lineTo(W - 1, terrain[W - 1]);
+  ctx.lineTo(vx1, terrain[W - 1]);
+  ctx.lineTo(vx1, vy1 + 20);
   ctx.closePath();
   ctx.fill();
 
@@ -1315,8 +1370,9 @@ function draw() {
   ctx.strokeStyle = HALLOWEEN ? '#5f9c2e' : '#4caf50';
   ctx.lineWidth = 6;
   ctx.beginPath();
-  ctx.moveTo(0, terrain[0]);
+  ctx.moveTo(vx0, terrain[0]);
   for (let x = 0; x < W; x += 2) ctx.lineTo(x, terrain[x]);
+  ctx.lineTo(vx1, terrain[W - 1]);
   ctx.stroke();
 
   decor.forEach(drawDecor);
@@ -1402,19 +1458,9 @@ function draw() {
   ctx.restore();
 }
 
-// handle rotation / window resize: rebuild the battlefield at the new size,
-// keeping tanks at proportional positions with their health intact
-window.addEventListener('resize', () => {
-  const oldW = W;
-  if (window.innerWidth === oldW && window.innerHeight === H) return;
-  sizeCanvas();
-  genTerrain();
-  genClouds();
-  tanks.forEach(t => {
-    t.x = Math.round(t.x / oldW * W);
-    t.y = groundAt(t.x);
-  });
-});
+// rotation / resize only rescales the picture: the battlefield (and its craters) stays put
+window.addEventListener('resize', sizeCanvas);
+window.addEventListener('orientationchange', () => setTimeout(sizeCanvas, 250));
 
 // ---------- Main loop ----------
 // The game steps 60 times a second whatever the screen's refresh rate
@@ -1431,6 +1477,183 @@ function loop(now) {
   draw();
   requestAnimationFrame(loop);
 }
+// ---------- Two iPads: Firebase Realtime Database over REST ----------
+// A game lives at tanks/<code>. Each shot is stored with a snapshot of the
+// battlefield before it and after it, so the other iPad replays the same shot
+// and then lands on exactly the same result.
+const DB = 'https://wizard-chess-manon-default-rtdb.europe-west1.firebasedatabase.app';
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => CODE_CHARS[b % CODE_CHARS.length]).join('');
+let ONLINE = null, DOC = null, es = null, localRound = 0, pendingShot = null, remoteAfter = null;
+{
+  const hp = new URLSearchParams(location.hash.slice(1));
+  if (hp.get('t') && (hp.get('me') === '0' || hp.get('me') === '1')) ONLINE = { code: hp.get('t').toUpperCase(), me: +hp.get('me') };
+}
+const docUrl = () => `${DB}/tanks/${encodeURIComponent(ONLINE.code)}.json`;
+async function dbGet() { try { const r = await fetch(docUrl(), { cache: 'no-store' }); return r.ok ? await r.json() : null; } catch (e) { return null; } }
+async function dbPut(d) { try { return (await fetch(docUrl(), { method: 'PUT', body: JSON.stringify(d) })).ok; } catch (e) { return false; } }
+async function dbPatch(d) { try { return (await fetch(docUrl(), { method: 'PATCH', body: JSON.stringify(d) })).ok; } catch (e) { return false; } }
+
+function encodeTerrain() {
+  const u = new Uint16Array(W);
+  for (let x = 0; x < W; x++) u[x] = Math.round(terrain[x] * 8);
+  const b = new Uint8Array(u.buffer); let str = '';
+  for (let i = 0; i < b.length; i += 4096) str += String.fromCharCode.apply(null, b.subarray(i, i + 4096));
+  return btoa(str);
+}
+function decodeTerrain(s64) {
+  const str = atob(s64), b = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) b[i] = str.charCodeAt(i);
+  const u = new Uint16Array(b.buffer);
+  for (let x = 0; x < W && x < u.length; x++) terrain[x] = u[x] / 8;
+}
+const snap = () => ({ tr: encodeTerrain(), hp: tanks.map(t => t.hp) });
+function applySnap(sn) {
+  if (!sn) return;
+  if (sn.tr) decodeTerrain(sn.tr);
+  if (sn.hp) tanks.forEach((t, i) => { t.hp = sn.hp[i]; });
+  tanks.forEach(t => { t.y = groundAt(t.x); });
+  updateHpBars();
+}
+
+function endOfShot() {
+  if (ONLINE) {
+    if (remoteAfter) { applySnap(remoteAfter); remoteAfter = null; }
+    else if (pendingShot) {
+      const ps = pendingShot; pendingShot = null;
+      dbPatch({ shot: { i: ps.i, by: ps.by, a: ps.a, pw: ps.pw, ghost: ps.ghost }, before: ps.before, after: snap(), t: Date.now() });
+    }
+  }
+  shotIdx++;
+  if (!checkWin()) { current = 1 - current; startTurn(); }
+  if (ONLINE && DOC) onDoc(DOC);   // anything that arrived while the shell was flying
+}
+
+function playerFrom(p, i) {
+  return { n: (p && p.n) || (i ? 'Player 2' : 'Player 1'), type: (p && TYPES[p.type]) ? p.type : 'scout', color: (p && p.color) || COLORS[i],
+    outfit: (p && OUTFITS[p.outfit]) ? p.outfit : 'cute', style: (p && p.style) || 'long', hair: (p && p.hair) || HAIRCOLORS[0], ready: !!(p && p.ready) };
+}
+function applyPlayers(p) {
+  for (let i = 0; i < 2; i++) {
+    const q = playerFrom(p && p[i], i);
+    tanks[i].name = q.n; tanks[i].type = TYPES[q.type]; tanks[i].color = q.color; tanks[i].dark = shade(q.color, 0.72);
+    tanks[i].rider = { outfit: q.outfit, style: q.style, hair: q.hair };
+  }
+}
+
+function showOnlineSetup(d) {
+  const me = ONLINE.me, them = 1 - me;
+  const p = [playerFrom(d.p && d.p[0], 0), playerFrom(d.p && d.p[1], 1)];
+  if (!showOnlineSetup.loaded) {   // load my own choices once; keep my edits after that
+    sel[me] = { type: p[me].type, color: p[me].color, outfit: p[me].outfit, style: p[me].style, hair: p[me].hair };
+    $('in' + (me + 1)).value = p[me].n;
+    showOnlineSetup.loaded = true;
+  }
+  sel[them] = { type: p[them].type, color: p[them].color, outfit: p[them].outfit, style: p[them].style, hair: p[them].hair };
+  $('in' + (them + 1)).value = p[them].n;
+  document.querySelectorAll('.name-col').forEach((c, i) => c.classList.toggle('locked', i === them));
+  $('onlineBtn').classList.add('hidden');
+  $('startBtn').textContent = p[me].ready ? `Waiting for ${p[them].n}…` : "I'm ready!";
+  $('startBtn').disabled = p[me].ready;
+  const note = $('onlineNote'); note.classList.remove('hidden');
+  note.innerHTML = p[me].ready
+    ? `${p[them].n} hasn't tapped Ready yet. <button class="ctl" id="inviteBtn" style="width:auto;padding:0 14px;height:32px;font-size:13px">📨 Send ${p[them].n} the link</button>`
+    : `Two-iPad game. Dress up your own tank, then tap Ready.`;
+  const ib = $('inviteBtn'); if (ib) ib.onclick = () => shareInvite(p[them].n);
+  $('startOverlay').style.display = 'flex';
+  renderPickers();
+}
+
+function onDoc(d) {
+  if (!d) return;
+  DOC = d;
+  const bothReady = d.p && d.p[0] && d.p[1] && d.p[0].ready && d.p[1].ready;
+  if (!bothReady) { showOnlineSetup(d); return; }
+  if (state === 'fly' || state === 'settle') return;          // finish the current shot first
+  if (localRound !== d.round) {
+    localRound = d.round;
+    applyPlayers(d.p);
+    $('startOverlay').style.display = 'none'; $('winOverlay').style.display = 'none'; $('againBtn').disabled = false;
+    $('setupBtn').classList.add('hidden');
+    ['topbar', 'controls', 'hint'].forEach(id => $(id).classList.remove('hidden'));
+    newBattle(d.first, d.seed);
+    if (d.shot && d.after) {      // reopening mid-battle: jump to where it stands
+      shotIdx = d.shot.i; applySnap(d.after); shotIdx++;
+      if (!checkWin()) { current = 1 - d.shot.by; startTurn(); }
+    }
+    return;
+  }
+  if (!d.shot || d.shot.by === ONLINE.me || d.shot.i < shotIdx || state !== 'aim') return;
+  if (d.shot.i === shotIdx) {     // the other player's shot: replay it here
+    applySnap(d.before);
+    current = d.shot.by;
+    const t = tanks[current];
+    t.angle = d.shot.a; t.power = d.shot.pw;
+    ghost = d.shot.ghost ? { x: d.shot.ghost.x, y: d.shot.ghost.y, vx: d.shot.ghost.vx, ph: d.shot.ghost.ph } : null;
+    remoteAfter = d.after;
+    updateAimUI();
+    audio();
+    launch();
+  } else {                        // missed some shots: catch up
+    shotIdx = d.shot.i; applySnap(d.after); shotIdx++;
+    if (!checkWin()) { current = 1 - d.shot.by; startTurn(); }
+  }
+}
+
+function watch() {
+  if (es) es.close();
+  if (!window.EventSource) return;
+  es = new EventSource(docUrl());
+  const refresh = async () => { const d = await dbGet(); if (d) onDoc(d); };
+  es.addEventListener('put', e => { try { const m = JSON.parse(e.data); if (m.path === '/' && m.data) onDoc(m.data); else refresh(); } catch (_) {} });
+  es.addEventListener('patch', refresh);
+}
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden || !ONLINE) return;
+  const d = await dbGet(); if (d) onDoc(d);
+});
+
+function inviteUrl(code, seat) {
+  return location.origin + location.pathname + (HALLOWEEN ? '?halloween' : '') + `#t=${code}&me=${seat}`;
+}
+async function shareInvite(name) {
+  const url = inviteUrl(ONLINE.code, 1 - ONLINE.me);
+  const text = `${tanks[ONLINE.me].name || 'Your friend'} challenges you to Tank Duel${HALLOWEEN ? ' 🎃' : ' 💥'}`;
+  if (navigator.share) { try { await navigator.share({ title: 'Tank Duel', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); showBanner('Link copied: paste it into Messages', '#5a3fd6'); } catch (e) { prompt('Send this link:', url); }
+}
+
+$('onlineBtn').addEventListener('click', async () => {
+  audio();
+  const code = newCode();
+  ONLINE = { code, me: 0 };
+  const names = [$('in1').value.trim() || 'Player 1', $('in2').value.trim() || 'Player 2'];
+  const d = { p: [0, 1].map(i => ({ n: names[i], ...sel[i], ready: i === 0 })), seed: Math.floor(Math.random() * 2147483647),
+    first: Math.random() < 0.5 ? 0 : 1, round: 1, t: Date.now() };
+  if (!(await dbPut(d))) { ONLINE = null; showBanner('No connection. Try again.', '#666'); return; }
+  history.replaceState(null, '', location.pathname + location.search + `#t=${code}&me=0`);
+  tanks[0].name = names[0];
+  showOnlineSetup.loaded = true;
+  onDoc(d); watch();
+  shareInvite(names[1]);
+});
+
+// in a two-iPad game, the start button means "I'm ready"
+$('startBtn').addEventListener('click', e => {
+  if (!ONLINE) return;
+  e.stopImmediatePropagation();
+  audio();
+  const me = ONLINE.me;
+  const q = { n: $('in' + (me + 1)).value.trim() || (me ? 'Player 2' : 'Player 1'), ...sel[me], ready: true };
+  $('startBtn').disabled = true;
+  dbPatch({ [`p/${me}`]: q, t: Date.now() });
+}, true);
+$('setupBtn').addEventListener('click', e => {
+  if (!ONLINE) return;
+  e.stopImmediatePropagation();          // in a two-iPad game tanks are changed between rounds by Play Again
+  $('winOverlay').style.display = 'none';
+}, true);
+
 genTerrain();
 genClouds();
 tanks[0].x = Math.round(W * 0.14); tanks[1].x = Math.round(W * 0.86);
@@ -1441,6 +1664,16 @@ if (HALLOWEEN) {
   $('fireBtn').textContent = 'HOLD to FIRE 🎃';
 }
 requestAnimationFrame(loop);
+// read-only peek for automated tests
+window.__td = { get s() { return { state, current, shotIdx, round: localRound, hp: tanks.map(t => t.hp), wind, tsum: Math.round(terrain.reduce((a, b) => a + b, 0)), x: tanks.map(t => t.x) }; } };
+if (ONLINE) {
+  $('onlineBtn').classList.add('hidden');
+  $('startBtn').textContent = 'Loading…'; $('startBtn').disabled = true;
+  dbGet().then(d => {
+    if (!d) { $('startBtn').textContent = 'Game not found'; return; }
+    onDoc(d); watch();
+  });
+}
 
 })();
 </script>
